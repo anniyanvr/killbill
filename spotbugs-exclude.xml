@@ -1,6 +1,6 @@
 <!--
-  ~ Copyright 2020-2020 Equinix, Inc
-  ~ Copyright 2020-2020 The Billing Project, LLC
+  ~ Copyright 2020-2023 Equinix, Inc
+  ~ Copyright 2014-2023 The Billing Project, LLC
   ~
   ~ The Billing Project licenses this file to you under the Apache License, version 2.0
   ~ (the "License"); you may not use this file except in compliance with the
@@ -15,12 +15,301 @@
   ~ under the License.
   -->
 
-<FindBugsFilter>
+<FindBugsFilter
+        xmlns="https://github.com/spotbugs/filter/3.0.0"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="https://github.com/spotbugs/filter/3.0.0
+                            https://raw.githubusercontent.com/spotbugs/spotbugs/4.7.0/spotbugs/etc/findbugsfilter.xsd">
+
+    <!-- FIXME-SPOTBUGS: think proper solution for this -->
+    <!-- Disable EI_EXPOSE_REP,EI_EXPOSE_REP2 for all killbill classes, focus on other warnings/bugs -->
     <Match>
-        <!-- See http://stackoverflow.com/questions/12422473/nullable-input-in-google-guava-function-interface-triggers-findbugs-warning -->
-        <Method name="apply"/>
-        <Bug pattern="NP_PARAMETER_MUST_BE_NONNULL_BUT_MARKED_AS_NULLABLE"/>
+        <Class name="~.*\.killbill\..*" />
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2" />
     </Match>
-    <Bug pattern="EI_EXPOSE_REP"/>
-    <Bug pattern="EI_EXPOSE_REP2"/>
+
+    <!-- Exclude all joda-time getter methods: joda-time classes are mostly immutable. -->
+    <Match>
+        <Or>
+            <Method returns="org.joda.time.LocalDate" />
+            <Method returns="org.joda.time.DateTime" />
+            <Method returns="org.joda.time.DateTimeZone" />
+        </Or>
+        <Bug pattern="EI_EXPOSE_REP" />
+    </Match>
+
+    <!-- Exclude all joda-time method/constructors parameters: joda-time classes are mostly immutable. -->
+    <Match>
+        <Or>
+            <Field type="org.joda.time.LocalDate" />
+            <Field type="org.joda.time.DateTime" />
+            <Field type="org.joda.time.DateTimeZone" />
+        </Or>
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
+
+    <!-- MODULE: INTERNAL-API -->
+    <!-- Affected class (LightSecureRandom) are private class. Invocation controlled in single class. -->
+    <Match>
+        <Class name="org.killbill.billing.util.UUIDs$LightSecureRandom" />
+        <Bug pattern="UR_UNINIT_READ_CALLED_FROM_SUPER_CONSTRUCTOR" />
+    </Match>
+    <!-- serialization/deserialization not needed -->
+    <Match>
+        <Class name="org.killbill.billing.util.UUIDs$LightSecureRandom" />
+        <Bug pattern="SE_BAD_FIELD" />
+    </Match>
+
+    <!-- MODULE: UTIL -->
+    <!-- Either this, or we have to changes class name with better name and this changes will affect ~97 location in this project -->
+    <Match>
+        <Class name="org.killbill.billing.util.jackson.ObjectMapper" />
+        <Bug pattern="NM_SAME_SIMPLE_NAME_AS_SUPERCLASS" />
+    </Match>
+    <!-- There's comment saying that, "Note: this assumes custom realms return something sensible here" -->
+    <Match>
+        <Class name="org.killbill.billing.util.security.api.DefaultSecurityApi" />
+        <Method name="getCurrentUserPermissions" />
+        <Bug pattern="RCN_REDUNDANT_NULLCHECK_OF_NONNULL_VALUE" />
+    </Match>
+    <!-- justification: constructor resolves the generic exception type eagerly for DAO wiring; throwing here only aborts object creation and these DAO types are not used in finalizer-sensitive inheritance -->
+    <Match>
+        <Class name="org.killbill.billing.util.entity.dao.EntityDaoBase" />
+        <Method name="&lt;init&gt;" params="org.killbill.billing.util.dao.NonEntityDao, org.killbill.billing.util.cache.CacheControllerDispatcher, org.killbill.billing.util.entity.dao.EntitySqlDaoTransactionalJdbiWrapper, java.lang.Class" />
+        <Bug pattern="CT_CONSTRUCTOR_THROW" />
+    </Match>
+    <!-- justification: SpotBugs reports array toString formatting here, but this exception message is only diagnostic text on an impossible code path and does not affect runtime behavior -->
+    <Match>
+        <Class name="org.killbill.billing.util.entity.dao.EntitySqlDaoWrapperInvocationHandler" />
+        <Method name="retrieveTimeZoneAwareEntityFromArguments" params="java.lang.Object[]" />
+        <Bug pattern="DMI_INVOKING_TOSTRING_ON_ARRAY" />
+    </Match>
+    <!-- justification: cache provider construction intentionally validates the external ehcache configuration URI up front and fails fast during bootstrap if it cannot be loaded -->
+    <Match>
+        <Class name="org.killbill.billing.util.glue.EhCacheProviderBase" />
+        <Method name="&lt;init&gt;" params="org.killbill.commons.metrics.api.MetricRegistry, org.killbill.billing.util.config.definition.EhCacheConfig" />
+        <Bug pattern="CT_CONSTRUCTOR_THROW" />
+    </Match>
+    <!-- justification: this provider initializes the backing Ehcache manager during startup so configuration/reflection problems surface immediately instead of later at request time -->
+    <Match>
+        <Class name="org.killbill.billing.util.glue.EhcacheShiroManagerProvider" />
+        <Method name="&lt;init&gt;" params="org.apache.shiro.mgt.SecurityManager, org.apache.shiro.mgt.SubjectDAO, javax.cache.CacheManager, org.killbill.commons.metrics.api.MetricRegistry, org.killbill.billing.util.config.definition.EhCacheConfig" />
+        <Bug pattern="CT_CONSTRUCTOR_THROW" />
+    </Match>
+    <!-- justification: security API startup intentionally precomputes realm authorization hooks and should fail fast if a realm exposes an incompatible reflective contract -->
+    <Match>
+        <Class name="org.killbill.billing.util.security.api.DefaultSecurityApi" />
+        <Method name="&lt;init&gt;" params="org.killbill.billing.util.security.shiro.dao.UserDao, java.util.Set" />
+        <Bug pattern="CT_CONSTRUCTOR_THROW" />
+    </Match>
+    <!-- justification: session serialization failure is intentionally swallowed into an empty payload for backward compatibility with existing Shiro session persistence behavior -->
+    <Match>
+        <Class name="org.killbill.billing.util.security.shiro.dao.SessionModelDao" />
+        <Method name="&lt;init&gt;" params="org.apache.shiro.session.Session" />
+        <Bug pattern="CT_CONSTRUCTOR_THROW" />
+    </Match>
+    <!-- justification: realm initialization builds HTTP/JWT validation infrastructure eagerly so invalid Auth0 configuration fails during bootstrap rather than on the first login attempt -->
+    <Match>
+        <Class name="org.killbill.billing.util.security.shiro.realm.KillBillAuth0Realm" />
+        <Method name="&lt;init&gt;" params="org.killbill.billing.util.config.definition.SecurityConfig, org.killbill.clock.Clock" />
+        <Bug pattern="CT_CONSTRUCTOR_THROW" />
+    </Match>
+    <!-- justification: LDAP realm construction intentionally validates LDAP and SSL configuration up front because delayed failures would break authentication later in less predictable ways -->
+    <Match>
+        <Class name="org.killbill.billing.util.security.shiro.realm.KillBillJndiLdapRealm" />
+        <Method name="&lt;init&gt;" params="org.killbill.billing.util.config.definition.SecurityConfig" />
+        <Bug pattern="CT_CONSTRUCTOR_THROW" />
+    </Match>
+    <!-- justification: Okta realm construction eagerly creates the HTTP client and parses group-to-permission mappings so bad configuration fails fast during startup -->
+    <Match>
+        <Class name="org.killbill.billing.util.security.shiro.realm.KillBillOktaRealm" />
+        <Method name="&lt;init&gt;" params="org.killbill.billing.util.config.definition.SecurityConfig" />
+        <Bug pattern="CT_CONSTRUCTOR_THROW" />
+    </Match>
+    <!-- justification: this class intentionally mirrors SocketFactory.getDefault() because JNDI LDAP accepts a socket factory class name and expects that static entry point -->
+    <Match>
+        <Class name="org.killbill.billing.util.security.shiro.realm.SkipSSLCheckSocketFactory" />
+        <Method name="getDefault" />
+        <Bug pattern="HSM_HIDING_METHOD" />
+    </Match>
+    <!-- justification: test/support constructors derive applicable object types from the supplied control-tag metadata and should fail fast on invalid inputs rather than produce inconsistent tag definitions -->
+    <Match>
+        <Class name="org.killbill.billing.util.tag.DefaultTagDefinition" />
+        <Method name="&lt;init&gt;" params="java.lang.String, java.lang.String, java.lang.Boolean" />
+        <Bug pattern="CT_CONSTRUCTOR_THROW" />
+    </Match>
+
+    <!-- MODULE: CATALOG -->
+
+    <!--
+    Applied to line ~211 and ~245. The warning arise because DefaultCaseChangePlanAlignment and
+    DefaultCaseChangePlanPolicy don't have their own validate method and still use parent's DefaultCaseChange#validate().
+    This will change when they start to have their own validate method.
+
+    Thus, some suggestions about removing the method call is not right.
+    -->
+    <Match>
+        <Class name="org.killbill.billing.catalog.rules.DefaultPlanRules" />
+        <Bug pattern="RV_RETURN_VALUE_IGNORED_NO_SIDE_EFFECT" />
+    </Match>
+    <!-- justification: this copy constructor materializes overridden phases immediately and should fail fast if an override produces an invalid plan shape rather than defer the error to later catalog use -->
+    <Match>
+        <Class name="org.killbill.billing.catalog.DefaultPlan" />
+        <Method name="&lt;init&gt;" params="java.lang.String, org.killbill.billing.catalog.DefaultPlan, org.killbill.billing.catalog.api.PlanPhasePriceOverride[]" />
+        <Bug pattern="CT_CONSTRUCTOR_THROW" />
+    </Match>
+
+    <!-- MODULE: Subscription -->
+
+    <!--
+    All code base that use this class use "hasNext()" before "next()", and there are null guard all over the place.
+    Thus, solution for this class only adding explanation in javadoc.
+    -->
+    <Match>
+        <Class name="org.killbill.billing.subscription.api.user.SubscriptionBaseTransitionDataIterator" />
+        <Method name="next" />
+        <Bug pattern="IT_NO_SUCH_ELEMENT" />
+    </Match>
+    <!-- justification: timeline construction intentionally resolves catalog phases up front and propagates CatalogApiException immediately when the subscription event stream is inconsistent -->
+    <Match>
+        <Class name="org.killbill.billing.subscription.api.timeline.DefaultSubscriptionBaseTimeline" />
+        <Method name="&lt;init&gt;" params="org.killbill.billing.subscription.api.user.DefaultSubscriptionBase, org.killbill.billing.subscription.catalog.SubscriptionCatalog, org.killbill.clock.Clock" />
+        <Bug pattern="CT_CONSTRUCTOR_THROW" />
+    </Match>
+
+    <!-- MODULE: Junction -->
+    <!-- justification: billing events are materialized eagerly from subscription transitions and should fail fast if catalog-derived prices or phases cannot be resolved -->
+    <Match>
+        <Class name="org.killbill.billing.junction.plumbing.billing.DefaultBillingEvent" />
+        <Method name="&lt;init&gt;" params="org.killbill.billing.subscription.api.user.SubscriptionBillingEvent, org.killbill.billing.subscription.api.SubscriptionBase, int, org.killbill.billing.catalog.api.BillingAlignment, org.killbill.billing.catalog.api.Currency" />
+        <Bug pattern="CT_CONSTRUCTOR_THROW" />
+    </Match>
+
+    <!-- MODULE: Invoice -->
+    <!-- justification: usage-in-arrear state is built eagerly from billing events and catalog usage sections, and this type should fail fast when catalog-driven interval derivation is invalid -->
+    <Match>
+        <Class name="org.killbill.billing.invoice.usage.SubscriptionUsageInArrear" />
+        <Bug pattern="CT_CONSTRUCTOR_THROW" />
+    </Match>
+
+    <!-- MODULE: Overdue -->
+
+    <!-- This class is deprecated and not used anywhere. Keep it as per comment: ".... just kept for config compatibility" -->
+    <Match>
+        <Class name="org.killbill.billing.overdue.config.DefaultEmailNotification" />
+        <Bug pattern="URF_UNREAD_FIELD" />
+    </Match>
+
+    <!-- MODULE: Payment -->
+
+    <!-- These lines supposed to be workaround for: https://github.com/killbill/killbill/issues/1453. Keep it as is. -->
+    <Match>
+        <Class name="org.killbill.billing.payment.invoice.InvoicePaymentControlPluginApi" />
+        <Method name="extractIdsWithAmountFromProperties" params="java.lang.Iterable" />
+        <Bug pattern="WMI_WRONG_MAP_ITERATOR" />
+    </Match>
+
+    <!--
+    Method call are necessary, but return value could be ignored. Currently, it is annotated by
+    "@SuppressWarnings("unused")", so it is enough.
+    -->
+    <Match>
+        <Class name="org.killbill.billing.payment.core.PaymentMethodProcessor" />
+        <Method name="retrieveActualPaymentMethodExternalKey" />
+        <Bug pattern="DLS_DEAD_LOCAL_STORE" />
+    </Match>
+    <Match>
+        <Class name="org.killbill.billing.payment.core.PaymentMethodProcessor$9" />
+        <Method name="doOperation" />
+        <Bug pattern="DLS_DEAD_LOCAL_STORE" />
+    </Match>
+    <!-- justification: payment-control state machine wiring intentionally resolves required states and operations during singleton construction so invalid automaton configuration fails fast at startup -->
+    <Match>
+        <Class name="org.killbill.billing.payment.core.sm.PaymentControlStateMachineHelper" />
+        <Method name="&lt;init&gt;" />
+        <Bug pattern="CT_CONSTRUCTOR_THROW" />
+    </Match>
+    <!-- justification: this operation name is effectively a fixed internal constant used only during eager constructor initialization, so the instance-field warning is noise rather than a behavioral bug -->
+    <Match>
+        <Class name="org.killbill.billing.payment.core.sm.PaymentControlStateMachineHelper" />
+        <Field name="RETRY_OPERATION_NAME" />
+        <Bug pattern="SS_SHOULD_BE_STATIC" />
+    </Match>
+
+    <!-- FIXME-1853: DefaultNoOpPaymentControlProviderPlugin actually not used anywhere. Should we delete this? -->
+    <!-- Fix spotbug issue: URF_UNREAD_FIELD -->
+    <Match>
+        <Class name="org.killbill.billing.payment.provider.DefaultNoOpPaymentControlProviderPlugin" />
+        <Field name="paymentControlPluginApiException" />
+        <Bug pattern="URF_UNREAD_FIELD" />
+    </Match>
+
+    <!--
+    The only reason why DefaultPaymentControlContext need to have no-args constructor is because it extends
+    DefaultCallContext. At the time of writing, there's no part of code that serialize/deserialize DefaultPaymentControlContext.
+    -->
+    <Match>
+        <Class name="org.killbill.billing.payment.core.sm.control.ControlPluginRunner$DefaultPaymentControlContext" />
+        <Bug pattern="SE_NO_SUITABLE_CONSTRUCTOR_FOR_EXTERNALIZATION" />
+    </Match>
+
+    <!-- MODULE: JaxRs -->
+
+    <!-- See this discussion: https://github.com/killbill/killbill/pull/1858#discussion_r1193803654 -->
+    <Match>
+        <Class name="org.killbill.billing.jaxrs.util.Context" />
+        <Method name="createCallContextWithAccountId" />
+        <Bug pattern="DCN_NULLPOINTER_EXCEPTION" />
+    </Match>
+    <!-- justification: catalog JSON DTOs eagerly materialize nested catalog structures for API responses and should fail immediately if catalog metadata cannot be read consistently -->
+    <Match>
+        <Class name="org.killbill.billing.jaxrs.json.CatalogJson" />
+        <Method name="&lt;init&gt;" params="org.killbill.billing.catalog.api.StaticCatalog" />
+        <Bug pattern="CT_CONSTRUCTOR_THROW" />
+    </Match>
+    <!-- justification: phase JSON DTOs eagerly flatten plan-phase pricing and usage data for REST serialization, so constructor-time catalog failures are intentional and non-finalizer-sensitive -->
+    <Match>
+        <Class name="org.killbill.billing.jaxrs.json.CatalogJson$PhaseJson" />
+        <Method name="&lt;init&gt;" params="org.killbill.billing.catalog.api.PlanPhase" />
+        <Bug pattern="CT_CONSTRUCTOR_THROW" />
+    </Match>
+    <!-- justification: phase price DTOs intentionally resolve tiered usage prices up front when generating API payloads, and constructor failure only reflects invalid catalog price data -->
+    <Match>
+        <Class name="org.killbill.billing.jaxrs.json.PhasePriceJson" />
+        <Method name="&lt;init&gt;" params="java.lang.String, java.lang.String, java.lang.String, java.math.BigDecimal, java.math.BigDecimal, org.killbill.billing.catalog.api.Usage[], org.killbill.billing.catalog.api.Currency" />
+        <Bug pattern="CT_CONSTRUCTOR_THROW" />
+    </Match>
+    <!-- justification: session JSON adapts Shiro session objects into response payloads and can fail only while reading session metadata during one-shot serialization -->
+    <Match>
+        <Class name="org.killbill.billing.jaxrs.json.SessionJson" />
+        <Method name="&lt;init&gt;" params="org.apache.shiro.session.Session" />
+        <Bug pattern="CT_CONSTRUCTOR_THROW" />
+    </Match>
+    <!-- justification: subscription JSON eagerly resolves event history and phase pricing for API output, so constructor failures represent inconsistent subscription or catalog data during response assembly -->
+    <Match>
+        <Class name="org.killbill.billing.jaxrs.json.SubscriptionJson" />
+        <Method name="&lt;init&gt;" params="org.killbill.billing.entitlement.api.Subscription, org.killbill.billing.catalog.api.Currency, org.killbill.billing.util.audit.AccountAuditLogs" />
+        <Bug pattern="CT_CONSTRUCTOR_THROW" />
+    </Match>
+
+    <!-- MODULE: Profiles -->
+    <Match>
+        <Class name="org.apache.shiro.guice.web.ShiroWebModuleWith435" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
+
+    <!-- See the log message: "Failed to register for event notifications, this is bad exiting!". -->
+    <Match>
+        <Class name="org.killbill.billing.server.listeners.KillbillGuiceListener" />
+        <Method name="startLifecycleStage2" />
+        <Bug pattern="DM_EXIT" />
+    </Match>
+
+    <!-- Return value ignored, as intended? -->
+    <Match>
+        <Class name="org.killbill.billing.server.security.KillbillJdbcTenantRealm$SerializableSimpleByteSource" />
+        <Method name="readExternal" />
+        <Bug pattern="RR_NOT_CHECKED" />
+    </Match>
+
 </FindBugsFilter>

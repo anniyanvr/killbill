@@ -23,4 +23,5 @@ public interface CatalogInternalApi {
 
     public VersionedCatalog getFullCatalog(boolean useDefaultCatalog, final boolean filterTemplateCatalog, InternalTenantContext context) throws CatalogApiException;
 
+    public PriceOverrideSvcStatus getPriceOverrideSvcStatus();
 }

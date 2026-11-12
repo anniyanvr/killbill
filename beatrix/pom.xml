@@ -19,13 +19,14 @@
     <parent>
         <groupId>org.kill-bill.billing</groupId>
         <artifactId>killbill</artifactId>
-        <version>0.22.28-SNAPSHOT</version>
+        <version>0.25.7-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
     <artifactId>killbill-beatrix</artifactId>
     <packaging>jar</packaging>
     <name>killbill-beatrix</name>
     <properties>
+        <check.fail-spotbugs>true</check.fail-spotbugs>
         <main.basedir>${project.parent.basedir}</main.basedir>
     </properties>
     <dependencies>
@@ -55,23 +56,24 @@
             <artifactId>jsr305</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.google.guava</groupId>
-            <artifactId>guava</artifactId>
-        </dependency>
-        <dependency>
             <groupId>com.google.inject</groupId>
             <artifactId>guice</artifactId>
             <scope>provided</scope>
         </dependency>
         <dependency>
-            <groupId>io.airlift</groupId>
-            <artifactId>testing-mysql-server</artifactId>
-            <!-- Technically, test-runtime -->
-            <scope>test</scope>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+            <exclusions>
+                <!-- https://github.com/brettwooldridge/HikariCP/issues/1746 -->
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-api</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
-            <groupId>io.airlift</groupId>
-            <artifactId>testing-postgresql-server</artifactId>
+            <groupId>io.zonky.test</groupId>
+            <artifactId>embedded-postgres</artifactId>
             <!-- Technically, test-runtime -->
             <scope>test</scope>
         </dependency>
@@ -81,13 +83,8 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>javax.inject</groupId>
-            <artifactId>javax.inject</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>javax.servlet</groupId>
-            <artifactId>javax.servlet-api</artifactId>
-            <scope>test</scope>
+            <groupId>jakarta.inject</groupId>
+            <artifactId>jakarta.inject-api</artifactId>
         </dependency>
         <dependency>
             <groupId>joda-time</groupId>
@@ -109,7 +106,15 @@
         </dependency>
         <dependency>
             <groupId>org.ehcache</groupId>
+            <artifactId>ehcache</artifactId>
+            <!-- Needed to re-declare here. Otherwise, (at least during test), they pick the javax version -->
+            <classifier>jakarta</classifier>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.ehcache</groupId>
             <artifactId>ehcache-clustered</artifactId>
+            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>org.javassist</groupId>
@@ -189,6 +194,10 @@
         <dependency>
             <groupId>org.kill-bill.billing</groupId>
             <artifactId>killbill-platform-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.kill-bill.billing</groupId>
+            <artifactId>killbill-platform-base</artifactId>
         </dependency>
         <dependency>
             <groupId>org.kill-bill.billing</groupId>
@@ -296,6 +305,14 @@
         </dependency>
         <dependency>
             <groupId>org.kill-bill.commons</groupId>
+            <artifactId>killbill-locker</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.kill-bill.commons</groupId>
+            <artifactId>killbill-metrics-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.kill-bill.commons</groupId>
             <artifactId>killbill-queue</artifactId>
         </dependency>
         <dependency>
@@ -306,7 +323,17 @@
         </dependency>
         <dependency>
             <groupId>org.kill-bill.commons</groupId>
+            <artifactId>killbill-utils</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.kill-bill.commons</groupId>
             <artifactId>killbill-xmlloader</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.kill-bill.testing</groupId>
+            <artifactId>testing-mysql-server</artifactId>
+            <!-- Technically, test-runtime -->
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.mockito</groupId>
@@ -326,10 +353,6 @@
             <groupId>org.testng</groupId>
             <artifactId>testng</artifactId>
             <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.weakref</groupId>
-            <artifactId>jmxutils</artifactId>
         </dependency>
     </dependencies>
 </project>

@@ -20,6 +20,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import javax.annotation.Nullable;
 
@@ -29,21 +30,17 @@ import org.killbill.billing.util.tag.TagDefinition;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.google.common.base.Function;
-import com.google.common.collect.Collections2;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
-import io.swagger.annotations.ApiModel;
-import io.swagger.annotations.ApiModelProperty;
 
-@ApiModel(value="TagDefinition", parent = JsonBase.class)
+import io.swagger.v3.oas.annotations.media.Schema;
+
+@Schema(name = "TagDefinition")
 public class TagDefinitionJson extends JsonBase {
 
     private final UUID id;
     private final Boolean isControlTag;
-    @ApiModelProperty(required = true)
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED)
     private final String name;
-    @ApiModelProperty(required = true)
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED)
     private final String description;
     private final Set<ObjectType> applicableObjectTypes;
 
@@ -59,7 +56,7 @@ public class TagDefinitionJson extends JsonBase {
         this.isControlTag = isControlTag;
         this.name = name;
         this.description = description;
-        this.applicableObjectTypes = new HashSet<ObjectType>(applicableObjectTypes);
+        this.applicableObjectTypes = applicableObjectTypes == null ? new HashSet<>() : new HashSet<ObjectType>(applicableObjectTypes);
     }
 
     public TagDefinitionJson(final TagDefinition tagDefinition, @Nullable final List<AuditLog> auditLogs) {
@@ -154,11 +151,8 @@ public class TagDefinitionJson extends JsonBase {
     }
 
     public static Set<ObjectType> toObjectType(final Set<String> applicableObjectTypes) {
-        return ImmutableSet.copyOf(Collections2.transform(applicableObjectTypes, new Function<String, ObjectType>() {
-            @Override
-            public ObjectType apply(final String input) {
-                return ObjectType.valueOf(input);
-            }
-        }));
+        return applicableObjectTypes.stream()
+                .map(ObjectType::valueOf)
+                .collect(Collectors.toUnmodifiableSet());
     }
 }

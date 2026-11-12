@@ -68,7 +68,7 @@ CREATE TABLE invoice_items (
     rate numeric(15,9) NULL,
     currency varchar(3) NOT NULL,
     linked_item_id varchar(36),
-    quantity int,
+    quantity decimal(18, 9),
     item_details text,
     created_by varchar(50) NOT NULL,
     created_date datetime NOT NULL,
@@ -82,7 +82,6 @@ CREATE INDEX invoice_items_invoice_id ON invoice_items(invoice_id ASC);
 CREATE INDEX invoice_items_account_id ON invoice_items(account_id ASC);
 CREATE INDEX invoice_items_linked_item_id ON invoice_items(linked_item_id ASC);
 CREATE INDEX invoice_items_tenant_account_record_id ON invoice_items(tenant_record_id, account_record_id);
-
 
 DROP TABLE IF EXISTS invoice_item_history;
 CREATE TABLE invoice_item_history (
@@ -107,7 +106,7 @@ CREATE TABLE invoice_item_history (
     rate numeric(15,9) NULL,
     currency varchar(3) NOT NULL,
     linked_item_id varchar(36),
-    quantity int,
+    quantity decimal(18, 9),
     item_details text,
     change_type varchar(6) NOT NULL,
     created_by varchar(50) NOT NULL,
@@ -132,6 +131,7 @@ CREATE TABLE invoices (
     status varchar(15) NOT NULL DEFAULT 'COMMITTED',
     migrated bool NOT NULL,
     parent_invoice bool NOT NULL DEFAULT FALSE,
+    grp_id varchar(36) NOT NULL,
     created_by varchar(50) NOT NULL,
     created_date datetime NOT NULL,
     account_record_id bigint /*! unsigned */ not null,
@@ -141,7 +141,10 @@ CREATE TABLE invoices (
 CREATE UNIQUE INDEX invoices_id ON invoices(id);
 CREATE INDEX invoices_account ON invoices(account_id ASC);
 CREATE INDEX invoices_tenant_account_record_id ON invoices(tenant_record_id, account_record_id);
-
+CREATE INDEX invoice_grp_id ON invoices(grp_id ASC);
+CREATE INDEX invoice_currency ON invoices(currency ASC);
+CREATE INDEX invoice_account_record_id_record_id ON invoices(account_record_id, record_id);
+CREATE INDEX idx_invoices_tenant_record ON invoices (tenant_record_id, record_id);
 
 DROP TABLE IF EXISTS invoice_history;
 CREATE TABLE invoice_history (
@@ -155,6 +158,7 @@ CREATE TABLE invoice_history (
     status varchar(15) NOT NULL DEFAULT 'COMMITTED',
     migrated bool NOT NULL,
     parent_invoice bool NOT NULL DEFAULT FALSE,
+    grp_id varchar(36) NOT NULL,
     change_type varchar(6) NOT NULL,
     created_by varchar(50) NOT NULL,
     created_date datetime NOT NULL,
@@ -164,7 +168,9 @@ CREATE TABLE invoice_history (
 ) /*! CHARACTER SET utf8 COLLATE utf8_bin */;
 CREATE INDEX invoice_history_target_record_id ON invoice_history(target_record_id);
 CREATE INDEX invoice_history_tenant_record_id ON invoice_history(tenant_record_id);
-
+CREATE INDEX invoice_history_currency ON invoice_history(currency ASC);
+CREATE INDEX invoice_history_account_record_id_record_id ON invoice_history(account_record_id, record_id);
+CREATE INDEX idx_invoice_history_tenant_record ON invoice_history (tenant_record_id, record_id);
 
 DROP TABLE IF EXISTS invoice_payments;
 CREATE TABLE invoice_payments (
@@ -179,7 +185,7 @@ CREATE TABLE invoice_payments (
     processed_currency varchar(3) NOT NULL,
     payment_cookie_id varchar(255) DEFAULT NULL,
     linked_invoice_payment_id varchar(36) DEFAULT NULL,
-    success bool DEFAULT true,
+    status varchar(50) NOT NULL,
     created_by varchar(50) NOT NULL,
     created_date datetime NOT NULL,
     account_record_id bigint /*! unsigned */ not null,
@@ -207,7 +213,7 @@ CREATE TABLE invoice_payment_history (
     processed_currency varchar(3) NOT NULL,
     payment_cookie_id varchar(255) DEFAULT NULL,
     linked_invoice_payment_id varchar(36) DEFAULT NULL,
-    success bool DEFAULT true,
+    status varchar(50) NOT NULL,
     change_type varchar(6) NOT NULL,
     created_by varchar(50) NOT NULL,
     created_date datetime NOT NULL,
@@ -250,3 +256,4 @@ CREATE TABLE invoice_billing_events (
     PRIMARY KEY(record_id)
 ) /*! CHARACTER SET utf8 COLLATE utf8_bin */;
 CREATE UNIQUE INDEX invoice_billing_events_invoice_id ON invoice_billing_events(invoice_id);
+CREATE INDEX invoice_billing_events_tenant_account_record_id ON invoice_billing_events(tenant_record_id, account_record_id);

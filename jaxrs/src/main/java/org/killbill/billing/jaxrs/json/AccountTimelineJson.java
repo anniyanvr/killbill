@@ -19,6 +19,7 @@
 package org.killbill.billing.jaxrs.json;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
@@ -39,10 +40,10 @@ import org.killbill.billing.util.audit.AuditLog;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.google.common.collect.ImmutableList;
-import io.swagger.annotations.ApiModel;
 
-@ApiModel(value="AccountTimeline")
+import io.swagger.v3.oas.annotations.media.Schema;
+
+@Schema(name = "AccountTimeline")
 public class AccountTimelineJson {
 
     private final AccountJson account;
@@ -81,7 +82,7 @@ public class AccountTimelineJson {
             for (final InvoiceItem invoiceItem : invoice.getInvoiceItems()) {
                 if (InvoiceItemType.CREDIT_ADJ.equals(invoiceItem.getInvoiceItemType())) {
                     final List<AuditLog> auditLogs = accountAuditLogs.getAuditLogsForInvoiceItem(invoiceItem.getId());
-                    credits.add(new InvoiceItemJson(invoiceItem, ImmutableList.of(), auditLogs));
+                    credits.add(new InvoiceItemJson(invoiceItem, Collections.emptyList(), auditLogs));
                 }
             }
         }
@@ -163,18 +164,6 @@ public class AccountTimelineJson {
         result = 31 * result + (invoices != null ? invoices.hashCode() : 0);
         result = 31 * result + (payments != null ? payments.hashCode() : 0);
         return result;
-    }
-
-    private String getBundleExternalKey(final UUID invoiceId, final List<Invoice> invoices, final List<SubscriptionBundle> bundles) {
-        if (invoiceId == null) {
-            return null;
-        }
-        for (final Invoice cur : invoices) {
-            if (cur.getId().equals(invoiceId)) {
-                return getBundleExternalKey(cur, bundles);
-            }
-        }
-        return null;
     }
 
     private String getBundleExternalKey(final Invoice invoice, final List<SubscriptionBundle> bundles) {

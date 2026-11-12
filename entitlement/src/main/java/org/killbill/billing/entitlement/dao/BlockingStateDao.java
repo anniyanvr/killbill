@@ -20,9 +20,13 @@ package org.killbill.billing.entitlement.dao;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
+import javax.annotation.Nullable;
+
 import org.joda.time.DateTime;
+import org.joda.time.LocalDate;
 import org.killbill.billing.callcontext.InternalCallContext;
 import org.killbill.billing.callcontext.InternalTenantContext;
 import org.killbill.billing.catalog.api.VersionedCatalog;
@@ -32,8 +36,6 @@ import org.killbill.billing.entitlement.api.EntitlementApiException;
 import org.killbill.billing.util.api.AuditLevel;
 import org.killbill.billing.util.audit.AuditLogWithHistory;
 import org.killbill.billing.util.entity.dao.EntityDao;
-
-import com.google.common.base.Optional;
 
 public interface BlockingStateDao extends EntityDao<BlockingStateModelDao, BlockingState, EntitlementApiException> {
 
@@ -68,13 +70,24 @@ public interface BlockingStateDao extends EntityDao<BlockingStateModelDao, Block
     public List<BlockingState> getBlockingAllForAccountRecordId(VersionedCatalog catalog, InternalTenantContext context);
 
     /**
+     * Return all events for tuple {service, blockable_id} having at least one block_billing
+     *
+     * @param catalog full catalog
+     * @param context call context
+     * @return list of active blocking states for that account
+     */
+    public List<BlockingState> getBlockingActiveForAccount(VersionedCatalog catalog, @Nullable final LocalDate cutoffDt, InternalTenantContext context);
+
+
+    /**
      * Return all events (past and future) across all services for a given set of blockableIds
      *
      * @param blockableIds ids of the blockable object
+     * @param includeDeletedEvents flag that indicates whether deleted blocking events should be returned
      * @param context call context
      * @return list of all blocking states for that account
      */
-    public List<BlockingState> getByBlockingIds(Iterable<UUID> blockableIds, InternalTenantContext context);
+    public List<BlockingState> getByBlockingIds(Iterable<UUID> blockableIds, boolean includeDeletedEvents, InternalTenantContext context);
 
 
 

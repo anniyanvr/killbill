@@ -29,10 +29,10 @@ import org.apache.shiro.authc.AuthenticationException;
 import org.apache.shiro.authc.AuthenticationInfo;
 import org.apache.shiro.authc.AuthenticationToken;
 import org.apache.shiro.authc.SimpleAuthenticationInfo;
-import org.apache.shiro.codec.Base64;
-import org.apache.shiro.codec.Hex;
+import org.apache.shiro.lang.codec.Base64;
+import org.apache.shiro.lang.codec.Hex;
 import org.apache.shiro.realm.jdbc.JdbcRealm;
-import org.apache.shiro.util.ByteSource;
+import org.apache.shiro.lang.util.ByteSource;
 import org.killbill.billing.util.config.definition.SecurityConfig;
 import org.killbill.billing.util.security.shiro.KillbillCredentialsMatcher;
 
@@ -55,6 +55,9 @@ public class KillbillJdbcTenantRealm extends JdbcRealm {
         // Note: we don't support updating tenants credentials via API
         // See JavaDoc warning: https://shiro.apache.org/static/1.2.3/apidocs/org/apache/shiro/realm/AuthenticatingRealm.html
         setAuthenticationCachingEnabled(true);
+
+        // See https://issues.apache.org/jira/browse/SHIRO-552 and https://github.com/apache/shiro/pull/138
+        setSaltIsBase64Encoded(false);
 
         configureSecurity();
         configureQueries();

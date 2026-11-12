@@ -19,11 +19,14 @@
 package org.killbill.billing.jaxrs;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import javax.annotation.Nullable;
 
+import java.time.LocalDate;
 import org.killbill.billing.GuicyKillbillTestSuiteWithEmbeddedDB;
 import org.killbill.billing.catalog.api.BillingPeriod;
 import org.killbill.billing.catalog.api.Currency;
@@ -67,23 +70,22 @@ import org.killbill.billing.payment.provider.ExternalPaymentProviderPlugin;
 import org.killbill.billing.util.UUIDs;
 import org.killbill.billing.util.tag.ControlTagType;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
 
 public abstract class KillbillClient extends GuicyKillbillTestSuiteWithEmbeddedDB {
 
-    protected static final ImmutableList<String> NULL_PLUGIN_NAMES = null;
-    protected static final ImmutableMap<String, String> NULL_PLUGIN_PROPERTIES = null;
-    protected static final ImmutableList<AuditLog> EMPTY_AUDIT_LOGS = ImmutableList.<AuditLog>of();
+    protected static final List<String> NULL_PLUGIN_NAMES = null;
+    protected static final Map<String, String> NULL_PLUGIN_PROPERTIES = null;
+    protected static final List<AuditLog> EMPTY_AUDIT_LOGS = Collections.emptyList();
 
     protected final long DEFAULT_WAIT_COMPLETION_TIMEOUT_SEC = 60;
 
     protected static final String PLUGIN_NAME = "noop";
 
     protected static final Currency DEFAULT_CURRENCY = Currency.USD;
+
+    protected static final String DEFAULT_LOCALE = "fr";
 
     // static to be shared across test class instances (initialized once in @BeforeSuite)
     protected static CallbackServlet callbackServlet;
@@ -166,7 +168,11 @@ public abstract class KillbillClient extends GuicyKillbillTestSuiteWithEmbeddedD
     }
 
     protected Account createAccountWithDefaultPaymentMethod(final String externalkey, @Nullable final List<PluginProperty> pmProperties) throws Exception {
-        final Account input = createAccount();
+        return createAccountWithDefaultPaymentMethod(externalkey, pmProperties, DEFAULT_LOCALE);
+    }
+
+    protected Account createAccountWithDefaultPaymentMethod(final String externalkey, @Nullable final List<PluginProperty> pmProperties, final String locale) throws Exception {
+        final Account input = createAccount(null, locale);
 
         callbackServlet.pushExpectedEvent(ExtBusEventType.ACCOUNT_CHANGE);
         final PaymentMethodPluginDetail info = new PaymentMethodPluginDetail();
@@ -200,14 +206,22 @@ public abstract class KillbillClient extends GuicyKillbillTestSuiteWithEmbeddedD
     }
 
     protected Account createAccount(final UUID parentAccountId) throws Exception {
+        return createAccount(parentAccountId, DEFAULT_LOCALE);
+    }
+
+    protected Account createAccount(final UUID parentAccountId, final String locale) throws Exception {
         callbackServlet.pushExpectedEvent(ExtBusEventType.ACCOUNT_CREATION);
-        final Account account = createAccountNoEvent(parentAccountId);
+        final Account account = createAccountNoEvent(parentAccountId, locale);
         callbackServlet.assertListenerStatus();
         return account;
     }
 
     protected Account createAccountNoEvent(final UUID parentAccountId) throws KillBillClientException {
-        final Account input = getAccount(parentAccountId);
+        return createAccountNoEvent(parentAccountId, DEFAULT_LOCALE);
+    }
+
+    protected Account createAccountNoEvent(final UUID parentAccountId, final String locale) throws KillBillClientException {
+        final Account input = getAccount(parentAccountId, locale);
         return accountApi.createAccount(input, requestOptions);
     }
 
@@ -229,7 +243,7 @@ public abstract class KillbillClient extends GuicyKillbillTestSuiteWithEmbeddedD
         input.setProductCategory(productCategory);
         input.setBillingPeriod(billingPeriod);
         input.setPriceList(PriceListSet.DEFAULT_PRICELIST_NAME);
-        final Subscription subscription = subscriptionApi.createSubscription(input, null, null, true, false, false, true, DEFAULT_WAIT_COMPLETION_TIMEOUT_SEC, NULL_PLUGIN_PROPERTIES, requestOptions);
+        final Subscription subscription = subscriptionApi.createSubscription(input, (LocalDate) null, (LocalDate) null, true, false, false, true, DEFAULT_WAIT_COMPLETION_TIMEOUT_SEC, NULL_PLUGIN_PROPERTIES, requestOptions);
         callbackServlet.assertListenerStatus();
 
         assertEquals(subscription.getExternalKey(), externalKey);
@@ -253,7 +267,11 @@ public abstract class KillbillClient extends GuicyKillbillTestSuiteWithEmbeddedD
     }
 
     protected Account createAccountWithPMBundleAndSubscriptionAndWaitForFirstInvoice(final String productName, final boolean invoicePaymentSuccess, final boolean paymentSuccess) throws Exception {
-        final Account accountJson = createAccountWithDefaultPaymentMethod();
+        return createAccountWithPMBundleAndSubscriptionAndWaitForFirstInvoice(productName, invoicePaymentSuccess, paymentSuccess, DEFAULT_LOCALE);
+    }
+
+    protected Account createAccountWithPMBundleAndSubscriptionAndWaitForFirstInvoice(final String productName, final boolean invoicePaymentSuccess, final boolean paymentSuccess, final String locale) throws Exception {
+        final Account accountJson = createAccountWithDefaultPaymentMethod(UUID.randomUUID().toString(), null, locale);
         assertNotNull(accountJson);
 
         // Add a bundle, subscription and move the clock to get the first invoice
@@ -283,7 +301,7 @@ public abstract class KillbillClient extends GuicyKillbillTestSuiteWithEmbeddedD
         assertNotNull(accountJson);
 
         callbackServlet.pushExpectedEvent(ExtBusEventType.TAG_CREATION);
-        final Tags accountTag = accountApi.createAccountTags(accountJson.getAccountId(), ImmutableList.<UUID>of(ControlTagType.MANUAL_PAY.getId()), requestOptions);
+        final Tags accountTag = accountApi.createAccountTags(accountJson.getAccountId(), List.of(ControlTagType.MANUAL_PAY.getId()), requestOptions);
         callbackServlet.assertListenerStatus();
         assertNotNull(accountTag);
         assertEquals(accountTag.get(0).getTagDefinitionId(), ControlTagType.MANUAL_PAY.getId());
@@ -336,7 +354,11 @@ public abstract class KillbillClient extends GuicyKillbillTestSuiteWithEmbeddedD
     }
 
     protected Account getAccount(final UUID parentAccountId) {
-        return getAccount(UUID.randomUUID().toString(), UUID.randomUUID().toString(), UUID.randomUUID().toString().substring(0, 5) + '@' + UUID.randomUUID().toString().substring(0, 5), parentAccountId);
+        return getAccount(parentAccountId, DEFAULT_LOCALE);
+    }
+
+    protected Account getAccount(final UUID parentAccountId, final String locale) {
+        return getAccount(UUID.randomUUID().toString(), UUID.randomUUID().toString(), UUID.randomUUID().toString().substring(0, 5) + '@' + UUID.randomUUID().toString().substring(0, 5), parentAccountId, locale);
     }
 
     public Account getAccount(final String name, final String externalKey, final String email) {
@@ -344,6 +366,10 @@ public abstract class KillbillClient extends GuicyKillbillTestSuiteWithEmbeddedD
     }
 
     public Account getAccount(final String name, final String externalKey, final String email, final UUID parentAccountId) {
+        return getAccount(name, externalKey, email, parentAccountId, DEFAULT_LOCALE);
+    }
+
+    public Account getAccount(final String name, final String externalKey, final String email, final UUID parentAccountId, final String locale) {
         final UUID accountId = UUID.randomUUID();
         final int length = 4;
         final Currency currency = DEFAULT_CURRENCY;
@@ -355,7 +381,6 @@ public abstract class KillbillClient extends GuicyKillbillTestSuiteWithEmbeddedD
         final String city = "Quelque part";
         final String state = "Poitou";
         final String country = "France";
-        final String locale = "fr";
         final String phone = "81 53 26 56";
         final String notes = "notes";
         final boolean isPaymentDelegatedToParent = parentAccountId != null;
@@ -364,4 +389,6 @@ public abstract class KillbillClient extends GuicyKillbillTestSuiteWithEmbeddedD
         return new Account(accountId, name, length, externalKey, email, null, currency, parentAccountId, isPaymentDelegatedToParent, null, null, timeZone,
                            address1, address2, postalCode, company, city, state, country, locale, phone, notes, false, null, null, EMPTY_AUDIT_LOGS);
     }
+
+
 }

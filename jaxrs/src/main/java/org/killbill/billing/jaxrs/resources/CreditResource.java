@@ -18,24 +18,27 @@
 
 package org.killbill.billing.jaxrs.resources;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
-import javax.inject.Inject;
-import javax.inject.Singleton;
-import javax.servlet.http.HttpServletRequest;
-import javax.ws.rs.Consumes;
-import javax.ws.rs.DefaultValue;
-import javax.ws.rs.GET;
-import javax.ws.rs.HeaderParam;
-import javax.ws.rs.POST;
-import javax.ws.rs.Path;
-import javax.ws.rs.PathParam;
-import javax.ws.rs.Produces;
-import javax.ws.rs.QueryParam;
-import javax.ws.rs.core.Response;
-import javax.ws.rs.core.Response.Status;
-import javax.ws.rs.core.UriInfo;
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DefaultValue;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.HeaderParam;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.Response.Status;
+import jakarta.ws.rs.core.UriInfo;
 
 import org.joda.time.LocalDate;
 import org.killbill.billing.ObjectType;
@@ -58,19 +61,19 @@ import org.killbill.billing.util.callcontext.CallContext;
 import org.killbill.billing.util.callcontext.TenantContext;
 import org.killbill.clock.Clock;
 
-import com.google.common.base.Function;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
-import io.swagger.annotations.Api;
-import io.swagger.annotations.ApiOperation;
-import io.swagger.annotations.ApiResponse;
-import io.swagger.annotations.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Schema;
 
-import static javax.ws.rs.core.MediaType.APPLICATION_JSON;
+import static jakarta.ws.rs.core.MediaType.APPLICATION_JSON;
 
 @Singleton
 @Path(JaxrsResource.CREDITS_PATH)
-@Api(value = JaxrsResource.CREDITS_PATH, description = "Operations on credits", tags = "Credit")
+@Tag(name = "Credit", description = "Operations on credits")
 public class CreditResource extends JaxRsResourceBase {
 
     private final InvoiceUserApi invoiceUserApi;
@@ -95,32 +98,34 @@ public class CreditResource extends JaxRsResourceBase {
     @GET
     @Path("/{creditId:" + UUID_PATTERN + "}")
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Retrieve a credit by id", response = InvoiceItemJson.class)
-    @ApiResponses(value = {@ApiResponse(code = 400, message = "Invalid credit id supplied"),
-                           @ApiResponse(code = 404, message = "Credit not found")})
+    @Operation(summary = "Retrieve a credit by id")
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "successful operation", content = @Content(mediaType = "application/json", schema = @Schema(implementation = InvoiceItemJson.class))),
+                           @ApiResponse(responseCode = "400", description = "Invalid credit id supplied"),
+                           @ApiResponse(responseCode = "404", description = "Credit not found")})
     public Response getCredit(@PathParam("creditId") final UUID creditId,
-                              @javax.ws.rs.core.Context final HttpServletRequest request) throws InvoiceApiException {
+                              @jakarta.ws.rs.core.Context final HttpServletRequest request) throws InvoiceApiException {
         final TenantContext tenantContext = context.createTenantContextNoAccountId(request);
         final InvoiceItem credit = invoiceUserApi.getCreditById(creditId, tenantContext);
-        final InvoiceItemJson creditJson = new InvoiceItemJson(credit, ImmutableList.of(), null);
+        final InvoiceItemJson creditJson = new InvoiceItemJson(credit, Collections.emptyList(), null);
         return Response.status(Response.Status.OK).entity(creditJson).build();
     }
 
     @POST
     @Consumes(APPLICATION_JSON)
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Create a credit", response = InvoiceItemJson.class, responseContainer = "List")
-    @ApiResponses(value = {@ApiResponse(code = 201, message = "Created credit successfully"),
-                           @ApiResponse(code = 400, message = "Invalid account id supplied"),
-                           @ApiResponse(code = 404, message = "Account not found")})
+    @Operation(summary = "Create a credit")
+    @ApiResponses(value = {@ApiResponse(responseCode = "201", description = "Created credit successfully", content = @Content(mediaType = "application/json", array = @ArraySchema(schema = @Schema(implementation = InvoiceItemJson.class)))),
+                           @ApiResponse(responseCode = "400", description = "Invalid account id supplied"),
+                           @ApiResponse(responseCode = "404", description = "Account not found")})
     public Response createCredits(final List<InvoiceItemJson> json,
+                                  @QueryParam(QUERY_REQUESTED_DT) final String requestedDateTimeString,
                                  @QueryParam(QUERY_AUTO_COMMIT) @DefaultValue("false") final Boolean autoCommit,
                                  @QueryParam(QUERY_PLUGIN_PROPERTY) final List<String> pluginPropertiesString,
                                  @HeaderParam(HDR_CREATED_BY) final String createdBy,
                                  @HeaderParam(HDR_REASON) final String reason,
                                  @HeaderParam(HDR_COMMENT) final String comment,
-                                 @javax.ws.rs.core.Context final HttpServletRequest request,
-                                 @javax.ws.rs.core.Context final UriInfo uriInfo) throws AccountApiException, InvoiceApiException {
+                                 @jakarta.ws.rs.core.Context final HttpServletRequest request,
+                                 @jakarta.ws.rs.core.Context final UriInfo uriInfo) throws AccountApiException, InvoiceApiException {
         verifyNonNullOrEmpty(json, "CreditJson body should be specified");
         verifyNonNullOrEmpty(json.get(0).getAccountId(), "CreditJson accountId needs to be set",
                              json.get(0).getAmount(), "CreditJson creditAmount needs to be set");
@@ -129,18 +134,14 @@ public class CreditResource extends JaxRsResourceBase {
         final CallContext callContext = context.createCallContextWithAccountId(json.get(0).getAccountId(), createdBy, reason, comment, request);
 
         final Account account = accountUserApi.getAccountById(json.get(0).getAccountId(), callContext);
-        final LocalDate effectiveDate = new LocalDate(callContext.getCreatedDate(), account.getTimeZone());
+        final LocalDate requestedDate = Objects.requireNonNullElse(toLocalDate(requestedDateTimeString), new LocalDate(callContext.getCreatedDate(), account.getTimeZone()));
 
         final Iterable<InvoiceItem> inputItems = validateSanitizeAndTranformInputItems(account.getCurrency(), json);
 
-        final List<InvoiceItem> createdCredits = invoiceUserApi.insertCredits(account.getId(), effectiveDate, inputItems, autoCommit, pluginProperties, callContext);
-        final List<InvoiceItemJson> createdCreditsJson = Lists.<InvoiceItem, InvoiceItemJson>transform(createdCredits, new Function<InvoiceItem, InvoiceItemJson>() {
-                                                                                                           @Override
-                                                                                                           public InvoiceItemJson apply(final InvoiceItem input) {
-                                                                                                               return new InvoiceItemJson(input);
-                                                                                                           }
-                                                                                                       }
-                                                                                                      );
+        final List<InvoiceItem> createdCredits = invoiceUserApi.insertCredits(account.getId(), requestedDate, inputItems, autoCommit, pluginProperties, callContext);
+        final List<InvoiceItemJson> createdCreditsJson = createdCredits.stream()
+                .map(InvoiceItemJson::new)
+                .collect(Collectors.toUnmodifiableList());
 
         return Response.status(Status.OK).entity(createdCreditsJson).build();
     }

@@ -53,8 +53,8 @@ public class TestBillingAlignment extends TestIntegrationBase {
         final DefaultEntitlement bpEntitlement = createBaseEntitlementAndCheckForCompletion(account.getId(), "externalKey", "Shotgun", ProductCategory.BASE, BillingPeriod.MONTHLY, NextEvent.CREATE, NextEvent.BLOCK, NextEvent.INVOICE);
         assertNotNull(bpEntitlement);
 
-        invoiceChecker.checkInvoice(account.getId(), 1, callContext, new ExpectedInvoiceItemCheck(new LocalDate(2012, 4, 1), null, InvoiceItemType.FIXED, new BigDecimal("0")));
-        invoiceChecker.checkChargedThroughDate(bpEntitlement.getId(), new LocalDate(2012, 4, 1), callContext);
+        invoiceChecker.checkInvoice(account.getId(), 1, callContext, new ExpectedInvoiceItemCheck(new LocalDate(2012, 4, 1), new LocalDate(2012, 5, 1), InvoiceItemType.FIXED, new BigDecimal("0")));
+        invoiceChecker.checkChargedThroughDate(bpEntitlement.getId(), new LocalDate(2012, 5, 1), callContext);
 
         // GET OUT TRIAL (moving clock to 2012-05-04)
         addDaysAndCheckForCompletion(33, NextEvent.PHASE, NextEvent.INVOICE, NextEvent.PAYMENT, NextEvent.INVOICE_PAYMENT);
@@ -72,17 +72,17 @@ public class TestBillingAlignment extends TestIntegrationBase {
                                     new ExpectedInvoiceItemCheck(new LocalDate(2012, 5, 4), new LocalDate(2012, 5, 25), InvoiceItemType.REPAIR_ADJ, new BigDecimal("-174.97")));
         invoiceChecker.checkChargedThroughDate(bpEntitlement.getId(), new LocalDate(2013, 5, 1), callContext);
 
-        Assert.assertEquals(changedBpEntitlement.getSubscriptionBase().getAllTransitions().size(), 3);
+        Assert.assertEquals(changedBpEntitlement.getSubscriptionBase().getAllTransitions(false).size(), 3);
 
-        final SubscriptionBaseTransition trial = changedBpEntitlement.getSubscriptionBase().getAllTransitions().get(0);
+        final SubscriptionBaseTransition trial = changedBpEntitlement.getSubscriptionBase().getAllTransitions(false).get(0);
         Assert.assertEquals(trial.getEffectiveTransitionTime().toLocalDate().compareTo(new LocalDate(2012, 4, 1)), 0);
         Assert.assertEquals(trial.getNextPhase().getName(), "shotgun-monthly-trial");
 
-        final SubscriptionBaseTransition smEvergreen = changedBpEntitlement.getSubscriptionBase().getAllTransitions().get(1);
+        final SubscriptionBaseTransition smEvergreen = changedBpEntitlement.getSubscriptionBase().getAllTransitions(false).get(1);
         Assert.assertEquals(smEvergreen.getEffectiveTransitionTime().toLocalDate().compareTo(new LocalDate(2012, 5, 1)), 0);
         Assert.assertEquals(smEvergreen.getNextPhase().getName(), "shotgun-monthly-evergreen");
 
-        final SubscriptionBaseTransition saEvergreen = changedBpEntitlement.getSubscriptionBase().getAllTransitions().get(2);
+        final SubscriptionBaseTransition saEvergreen = changedBpEntitlement.getSubscriptionBase().getAllTransitions(false).get(2);
         // Verify the IMMEDIATE policy
         Assert.assertEquals(saEvergreen.getEffectiveTransitionTime().toLocalDate().compareTo(new LocalDate(2012, 5, 4)), 0);
         // Verify the START_OF_SUBSCRIPTION alignment (both plans have the same 30 days trial)

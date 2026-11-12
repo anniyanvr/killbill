@@ -65,12 +65,13 @@ CREATE TABLE bundles (
     tenant_record_id bigint /*! unsigned */ not null default 0,
     PRIMARY KEY(record_id)
 ) /*! CHARACTER SET utf8 COLLATE utf8_bin */;
-
+CREATE UNIQUE INDEX bundles_external_key ON bundles(external_key, tenant_record_id);
 DROP TABLE IF EXISTS subscriptions;
 CREATE TABLE subscriptions (
     record_id serial unique,
     id varchar(36) NOT NULL,
     bundle_id varchar(36) NOT NULL,
+    external_key varchar(255) NOT NULL,
     category varchar(32) NOT NULL,
     start_date datetime NOT NULL,
     bundle_start_date datetime NOT NULL,
@@ -124,7 +125,7 @@ CREATE TABLE payments (
 DROP TABLE IF EXISTS dummy;
 CREATE TABLE dummy (
     dummy_id varchar(36) NOT NULL,
-    value varchar(256) NOT NULL,
+    some_value varchar(256) NOT NULL,
     PRIMARY KEY(dummy_id)
 );
 
@@ -154,6 +155,8 @@ CREATE TABLE kombucha (
     tenant_record_id bigint /*! unsigned */ not null default 0,
     PRIMARY KEY(record_id)
 );
+
+CREATE INDEX idx_kombucha_tenant_record ON kombucha (tenant_record_id, record_id);
 
 DROP TABLE IF EXISTS full_of_dates;
 CREATE TABLE full_of_dates (

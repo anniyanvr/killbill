@@ -19,13 +19,13 @@
 package org.killbill.billing.util.glue;
 
 import org.apache.shiro.config.ConfigurationException;
-import org.apache.shiro.config.IniSecurityManagerFactory;
+import org.apache.shiro.ini.IniSecurityManagerFactory;
 import org.apache.shiro.mgt.DefaultSecurityManager;
 import org.apache.shiro.mgt.SecurityManager;
-import org.apache.shiro.util.Factory;
+import org.apache.shiro.lang.util.Factory;
 import org.killbill.billing.util.config.definition.SecurityConfig;
 import org.skife.config.ConfigSource;
-import org.skife.config.ConfigurationObjectFactory;
+import org.skife.config.AugmentedConfigurationObjectFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,7 +34,7 @@ public class RealmsFromShiroIniProvider {
     private static final Logger log = LoggerFactory.getLogger(RealmsFromShiroIniProvider.class);
 
     public static DefaultSecurityManager get(final ConfigSource configSource) {
-        final SecurityConfig securityConfig = new ConfigurationObjectFactory(configSource).build(SecurityConfig.class);
+        final SecurityConfig securityConfig = new AugmentedConfigurationObjectFactory(configSource).build(SecurityConfig.class);
 
         try {
             final Factory<SecurityManager> factory = new IniSecurityManagerFactory(securityConfig.getShiroResourcePath());

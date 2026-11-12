@@ -17,9 +17,10 @@
 
 package org.killbill.billing.invoice.optimizer;
 
+import java.util.Collections;
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.joda.time.LocalDate;
 import org.killbill.billing.callcontext.InternalCallContext;
@@ -27,11 +28,9 @@ import org.killbill.billing.invoice.api.Invoice;
 import org.killbill.billing.invoice.api.InvoiceItem;
 import org.killbill.billing.invoice.dao.InvoiceDao;
 import org.killbill.billing.junction.BillingEventSet;
+import org.killbill.commons.utils.annotation.VisibleForTesting;
 import org.killbill.billing.util.config.definition.InvoiceConfig;
 import org.killbill.clock.Clock;
-
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ImmutableList;
 
 public abstract class InvoiceOptimizerBase implements InvoiceOptimizer {
 
@@ -52,20 +51,26 @@ public abstract class InvoiceOptimizerBase implements InvoiceOptimizer {
     public static class AccountInvoices {
 
         protected final LocalDate cutoffDate;
+        protected final LocalDate beCutoffDate;
         protected final List<Invoice> invoices;
 
         @VisibleForTesting
-        public AccountInvoices(final LocalDate cutoffDate, final List<Invoice> invoices) {
+        public AccountInvoices(final LocalDate cutoffDate, final LocalDate beCutoffDate, final List<Invoice> invoices) {
             this.cutoffDate = cutoffDate;
             this.invoices = invoices;
+            this.beCutoffDate = beCutoffDate;
         }
 
         public AccountInvoices() {
-            this(null, ImmutableList.of());
+            this(null, null, Collections.emptyList());
         }
 
         public LocalDate getCutoffDate() {
             return cutoffDate;
+        }
+
+        public LocalDate getBillingEventCutoffDate() {
+            return beCutoffDate;
         }
 
         public List<Invoice> getInvoices() {

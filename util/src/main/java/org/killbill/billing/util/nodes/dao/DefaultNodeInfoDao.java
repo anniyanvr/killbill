@@ -20,7 +20,8 @@ package org.killbill.billing.util.nodes.dao;
 import java.util.Date;
 import java.util.List;
 
-import javax.inject.Named;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
 
 import org.joda.time.DateTime;
 import org.killbill.billing.util.entity.dao.DBRouter;
@@ -29,8 +30,6 @@ import org.skife.jdbi.v2.Handle;
 import org.skife.jdbi.v2.IDBI;
 import org.skife.jdbi.v2.TransactionCallback;
 import org.skife.jdbi.v2.TransactionStatus;
-
-import com.google.inject.Inject;
 
 import static org.killbill.billing.util.glue.IDBISetup.MAIN_RO_IDBI_NAMED;
 

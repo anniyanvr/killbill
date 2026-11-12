@@ -19,6 +19,7 @@ package org.killbill.billing.invoice.usage;
 
 import java.math.BigDecimal;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -40,13 +41,11 @@ import org.killbill.billing.invoice.usage.details.UsageInArrearAggregate;
 import org.killbill.billing.invoice.usage.details.UsageInArrearTierUnitDetail;
 import org.killbill.billing.usage.api.RawUsageRecord;
 import org.killbill.billing.usage.api.RolledUpUnit;
+import org.killbill.commons.utils.Joiner;
+import org.killbill.commons.utils.Preconditions;
+import org.killbill.commons.utils.annotation.VisibleForTesting;
 import org.killbill.billing.util.config.definition.InvoiceConfig;
 import org.killbill.billing.util.config.definition.InvoiceConfig.UsageDetailMode;
-
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 
 import static org.killbill.billing.invoice.usage.UsageUtils.getCapacityInArrearTier;
 
@@ -57,24 +56,30 @@ public class ContiguousIntervalCapacityUsageInArrear extends ContiguousIntervalU
     public ContiguousIntervalCapacityUsageInArrear(final Usage usage,
                                                    final UUID accountId,
                                                    final UUID invoiceId,
-                                                   final List<RawUsageRecord> rawSubscriptionUsage,
-                                                   final Set<TrackingRecordId> existingTrackingId,
                                                    final LocalDate targetDate,
-                                                   final LocalDate rawUsageStartDate,
+                                                   final DateTime rawUsageStartDate,
                                                    final UsageDetailMode usageDetailMode,
                                                    final InvoiceConfig invoiceConfig,
-                                                   final boolean isDryRun,
                                                    final InternalTenantContext internalTenantContext) {
-        super(usage, accountId, invoiceId, rawSubscriptionUsage, existingTrackingId, targetDate, rawUsageStartDate, usageDetailMode, invoiceConfig, isDryRun, internalTenantContext);
+        super(usage, accountId, invoiceId, targetDate, rawUsageStartDate, usageDetailMode, invoiceConfig, internalTenantContext);
     }
 
     @Override
-    protected void populateResults(final LocalDate startDate, final LocalDate endDate, final DateTime catalogEffectiveDate, final BigDecimal billedUsage, final BigDecimal toBeBilledUsage, final UsageInArrearAggregate toBeBilledUsageDetails, final boolean areAllBilledItemsWithDetails, final boolean isPeriodPreviouslyBilled, final List<InvoiceItem> result) throws InvoiceApiException {
+    protected void populateResults(final DateTime startDate,
+                                   final DateTime endDate,
+                                   final DateTime catalogEffectiveDate,
+                                   final BigDecimal billedUsage,
+                                   final BigDecimal toBeBilledUsage,
+                                   final UsageInArrearAggregate toBeBilledUsageDetails,
+                                   final boolean areAllBilledItemsWithDetails,
+                                   final boolean isPeriodPreviouslyBilled,
+                                   final boolean isDryRun,
+                                   final List<InvoiceItem> result) throws InvoiceApiException {
         // Compute final amount by subtracting  amount that was already billed.
         final BigDecimal amountToBill = toBeBilledUsage.subtract(billedUsage);
 
         if (amountToBill.compareTo(BigDecimal.ZERO) < 0) {
-            if (isDryRun) {
+            if (isDryRun || invoiceConfig.isUsageMissingLenient(internalTenantContext)) {
                 return;
             } else {
                 throw new InvoiceApiException(ErrorCode.UNEXPECTED_ERROR,
@@ -85,14 +90,14 @@ public class ContiguousIntervalCapacityUsageInArrear extends ContiguousIntervalU
             if (!isPeriodPreviouslyBilled || amountToBill.compareTo(BigDecimal.ZERO) > 0) {
                 final String itemDetails = areAllBilledItemsWithDetails ? toJson(toBeBilledUsageDetails) : null;
                 final InvoiceItem item = new UsageInvoiceItem(invoiceId, accountId, getBundleId(), getSubscriptionId(), getProductName(), getPlanName(),
-                                                              getPhaseName(), usage.getName(), catalogEffectiveDate, startDate, endDate, amountToBill, null, getCurrency(), null, itemDetails);
+                                                              getPhaseName(), usage.getName(), catalogEffectiveDate, usageClockUtil.toLocalDate(startDate, internalTenantContext), usageClockUtil.toLocalDate(endDate, internalTenantContext), amountToBill, null, getCurrency(), null, itemDetails);
                 result.add(item);
             }
         }
     }
 
     @Override
-    protected UsageInArrearAggregate getToBeBilledUsageDetails(final LocalDate startDate, final LocalDate endDate, final List<RolledUpUnit> rolledUpUnits, final Iterable<InvoiceItem> billedItems, final boolean areAllBilledItemsWithDetails) throws CatalogApiException {
+    protected UsageInArrearAggregate getToBeBilledUsageDetails(final DateTime startDate, final DateTime endDate, final List<RolledUpUnit> rolledUpUnits, final Iterable<InvoiceItem> billedItems, final boolean areAllBilledItemsWithDetails, final boolean isDryRun) throws CatalogApiException {
         return computeToBeBilledCapacityInArrear(rolledUpUnits);
     }
 
@@ -108,13 +113,13 @@ public class ContiguousIntervalCapacityUsageInArrear extends ContiguousIntervalU
 
     @VisibleForTesting
     UsageCapacityInArrearAggregate computeToBeBilledCapacityInArrear(final List<RolledUpUnit> roUnits) throws CatalogApiException {
-        Preconditions.checkState(isBuilt.get());
+        Preconditions.checkState(isBuilt.get(), "#computeToBeBilledCapacityInArrear() isBuilt.get() return false");
 
         final List<Tier> tiers = getCapacityInArrearTier(usage);
 
-        final Set<String> perUnitTypeDetailTierLevel = new HashSet<String>();
+        final Set<String> perUnitTypeDetailTierLevel = new HashSet<>();
         int tierNum = 0;
-        final List<UsageInArrearTierUnitDetail> toBeBilledDetails = Lists.newLinkedList();
+        final List<UsageInArrearTierUnitDetail> toBeBilledDetails = new LinkedList<>();
         for (final Tier cur : tiers) {
             tierNum++;
             final BigDecimal curTierPrice = cur.getRecurringPrice().getPrice(getCurrency());
@@ -126,11 +131,10 @@ public class ContiguousIntervalCapacityUsageInArrear extends ContiguousIntervalU
                 final Limit tierLimit = getTierLimit(cur, ro.getUnitType());
                 // We ignore the min and only look at the max Limit as the tiers should be contiguous.
                 // Specifying a -1 value for last max tier will make the validation works
-                if (tierLimit.getMax() != (double) -1 && ro.getAmount().doubleValue() > tierLimit.getMax()) {
+                if (tierLimit.getMax().compareTo(new BigDecimal("-1")) != 0 && ro.getAmount().compareTo(tierLimit.getMax())> 0) {
                     complies = false;
                 } else {
-
-                    allUnitAmountToZero = ro.getAmount() > 0 ? false : allUnitAmountToZero;
+                    allUnitAmountToZero = ro.getAmount().compareTo(BigDecimal.ZERO) <= 0 && allUnitAmountToZero;
 
                     if (!perUnitTypeDetailTierLevel.contains(ro.getUnitType())) {
                         toBeBilledDetails.add(new UsageInArrearTierUnitDetail(tierNum, ro.getUnitType(), curTierPrice, ro.getAmount()));
@@ -153,7 +157,6 @@ public class ContiguousIntervalCapacityUsageInArrear extends ContiguousIntervalU
         final StringBuilder sb = new StringBuilder("ContiguousIntervalCapacityUsageInArrear{");
         sb.append("transitionTimes=").append(transitionTimes);
         sb.append(", billingEvents=").append(billingEvents);
-        sb.append(", rawSubscriptionUsage=").append(rawSubscriptionUsage);
         sb.append(", rawUsageStartDate=").append(rawUsageStartDate);
         sb.append('}');
         return sb.toString();

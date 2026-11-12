@@ -26,7 +26,7 @@ import org.skife.config.Description;
 import org.skife.config.Param;
 import org.skife.config.TimeSpan;
 
-public interface PaymentConfig extends KillbillConfig {
+public interface PaymentConfig extends LockAwareConfig {
 
     @Config("org.killbill.payment.retry.days")
     @Default("8,8,8")
@@ -129,4 +129,15 @@ public interface PaymentConfig extends KillbillConfig {
     @Default("50")
     @Description("Maximum number of times the system will retry to grab global lock (with a 100ms wait each time)")
     int getMaxGlobalLockRetries();
+
+    @Config("org.killbill.payment.method.overwrite")
+    @Default("false")
+    @Description("Ability to overwrite an existing payment method from a control plugin")
+    boolean isAllowedToOverwritePaymentMethodId();
+
+    @Config("org.killbill.payment.allow.emptyInvoice")
+    @Default("false")
+    @Description(" Ability to allow payments for zero amount invoices")
+    boolean allowEmptyInvoice();
+
 }

@@ -16,11 +16,11 @@
 
 package org.killbill.billing.util.template.translation;
 
+import org.killbill.billing.invoice.plugin.api.InvoiceFormatterFactory;
 import org.skife.config.Config;
 import org.skife.config.Default;
+import org.skife.config.DefaultNull;
 import org.skife.config.Description;
-
-import org.killbill.billing.invoice.api.formatters.InvoiceFormatterFactory;
 
 public interface TranslatorConfig {
 
@@ -54,8 +54,8 @@ public interface TranslatorConfig {
     @Description("Path to the invoice template for accounts with MANUAL_PAY tag")
     String getManualPayTemplateName();
 
-    @Config("org.killbill.template.invoiceFormatterFactoryClass")
-    @Default("org.killbill.billing.invoice.template.formatters.DefaultInvoiceFormatterFactory")
-    @Description("Invoice formatter class")
-    Class<? extends InvoiceFormatterFactory> getInvoiceFormatterFactoryClass();
+    @Config("org.killbill.template.invoiceFormatterFactoryPluginName")
+    @DefaultNull
+    @Description("Invoice formatter factory plugin name")
+    String getInvoiceFormatterFactoryPluginName();
 }

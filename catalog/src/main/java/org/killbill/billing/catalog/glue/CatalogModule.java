@@ -18,6 +18,8 @@
 
 package org.killbill.billing.catalog.glue;
 
+import java.util.Objects;
+
 import org.killbill.billing.catalog.DefaultCatalogService;
 import org.killbill.billing.catalog.api.CatalogInternalApi;
 import org.killbill.billing.catalog.api.CatalogService;
@@ -34,8 +36,8 @@ import org.killbill.billing.catalog.dao.CatalogOverrideDao;
 import org.killbill.billing.catalog.dao.DefaultCatalogOverrideDao;
 import org.killbill.billing.catalog.io.CatalogLoader;
 import org.killbill.billing.catalog.io.VersionedCatalogLoader;
-import org.killbill.billing.catalog.override.DefaultPriceOverride;
-import org.killbill.billing.catalog.override.PriceOverride;
+import org.killbill.billing.catalog.override.DefaultPriceOverrideSvc;
+import org.killbill.billing.catalog.override.PriceOverrideSvc;
 import org.killbill.billing.catalog.plugin.VersionedCatalogMapper;
 import org.killbill.billing.catalog.plugin.api.CatalogPluginApi;
 import org.killbill.billing.osgi.api.OSGIServiceRegistration;
@@ -43,10 +45,8 @@ import org.killbill.billing.platform.api.KillbillConfigSource;
 import org.killbill.billing.tenant.api.TenantInternalApi.CacheInvalidationCallback;
 import org.killbill.billing.util.config.definition.CatalogConfig;
 import org.killbill.billing.util.glue.KillBillModule;
-import org.skife.config.ConfigurationObjectFactory;
+import org.skife.config.AugmentedConfigurationObjectFactory;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Strings;
 import com.google.inject.TypeLiteral;
 import com.google.inject.name.Names;
 
@@ -59,12 +59,12 @@ public class CatalogModule extends KillBillModule {
     public CatalogModule(final KillbillConfigSource configSource) {
         super(configSource);
         // Unless explicitly specified we keep current "-" delimiter for backward compatibility
-        final boolean useRECXMLNamesCompliant = Boolean.valueOf(MoreObjects.<String>firstNonNull(configSource.getString("org.killbill.catalog.price.override.delimiter.REC-xml-names-19990114.compliant"), "false"));
+        final boolean useRECXMLNamesCompliant = Boolean.valueOf(Objects.requireNonNullElse(configSource.getString("org.killbill.catalog.price.override.delimiter.REC-xml-names-19990114.compliant"), "false"));
         this.priceOverridePattern = new PriceOverridePattern(useRECXMLNamesCompliant);
     }
 
     protected void installConfig() {
-        final CatalogConfig config = new ConfigurationObjectFactory(skifeConfigSource).build(CatalogConfig.class);
+        final CatalogConfig config = new AugmentedConfigurationObjectFactory(skifeConfigSource).build(CatalogConfig.class);
         bind(CatalogConfig.class).toInstance(config);
     }
 
@@ -72,7 +72,7 @@ public class CatalogModule extends KillBillModule {
         bind(PriceOverridePattern.class).toInstance(priceOverridePattern);
         bind(CatalogService.class).to(DefaultCatalogService.class).asEagerSingleton();
         bind(CatalogLoader.class).to(VersionedCatalogLoader.class).asEagerSingleton();
-        bind(PriceOverride.class).to(DefaultPriceOverride.class).asEagerSingleton();
+        bind(PriceOverrideSvc.class).to(DefaultPriceOverrideSvc.class).asEagerSingleton();
     }
 
     protected void installCatalogDao() {

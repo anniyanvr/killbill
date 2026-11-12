@@ -1,6 +1,8 @@
 /*
- * Copyright 2014-2018 Groupon, Inc
- * Copyright 2014-2018 The Billing Project, LLC
+ * Copyright 2010-2014 Ning, Inc.
+ * Copyright 2014-2020 Groupon, Inc
+ * Copyright 2020-2022 Equinix, Inc
+ * Copyright 2014-2022 The Billing Project, LLC
  *
  * The Billing Project licenses this file to you under the Apache License, version 2.0
  * (the "License"); you may not use this file except in compliance with the
@@ -17,14 +19,18 @@
 
 package org.killbill.billing.jaxrs;
 
+import java.io.InputStream;
 import java.math.BigDecimal;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import org.joda.time.DateTime;
+import java.time.ZonedDateTime;
+import java.time.ZoneId;
 import org.killbill.billing.catalog.api.BillingPeriod;
 import org.killbill.billing.catalog.api.ProductCategory;
 import org.killbill.billing.client.JaxrsResource;
@@ -43,10 +49,7 @@ import org.killbill.billing.util.jackson.ObjectMapper;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
-import org.asynchttpclient.Response;
-
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.google.common.collect.ImmutableMultimap;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
@@ -84,8 +87,8 @@ public class TestAdmin extends TestJaxrsBase {
 
     @Test(groups = "slow")
     public void testAdminInvoiceEndpoint() throws Exception {
-        final DateTime initialDate = new DateTime(2012, 4, 25, 0, 3, 42, 0);
-        clock.setDeltaFromReality(initialDate.getMillis() - clock.getUTCNow().getMillis());
+        final ZonedDateTime initialDate = ZonedDateTime.of(2012, 4, 25, 0, 3, 42, 0, ZoneId.systemDefault());
+        clock.setDeltaFromReality(initialDate.toInstant().toEpochMilli() - clock.getUTCNow().getMillis());
 
         final List<UUID> accounts = new LinkedList<UUID>();
         for (int i = 0; i < 5; i++) {
@@ -101,7 +104,7 @@ public class TestAdmin extends TestJaxrsBase {
             clock.addDays(2);
 
             Assert.assertEquals(invoiceApi.getInvoices(requestOptions).getPaginationMaxNbRecords(), i + 1);
-            final List<Invoice> invoices = accountApi.getInvoicesForAccount(accountJson.getAccountId(), null, null, false, false, false, null, AuditLevel.NONE, requestOptions);
+            final List<Invoice> invoices = accountApi.getInvoicesForAccount(accountJson.getAccountId(), null, null, false, false, false, true, null, AuditLevel.NONE, requestOptions);
             assertEquals(invoices.size(), 1);
         }
 
@@ -114,7 +117,7 @@ public class TestAdmin extends TestJaxrsBase {
 
         Assert.assertEquals(invoiceApi.getInvoices(requestOptions).getPaginationMaxNbRecords(), 10);
         for (final UUID accountId : accounts) {
-            final List<Invoice> invoices = accountApi.getInvoicesForAccount(accountId, null, null, false, false, false, null, AuditLevel.NONE, requestOptions);
+            final List<Invoice> invoices = accountApi.getInvoicesForAccount(accountId, null, null, false, false, false, true, null, AuditLevel.NONE, requestOptions);
             assertEquals(invoices.size(), 2);
         }
 
@@ -136,18 +139,18 @@ public class TestAdmin extends TestJaxrsBase {
 
         Assert.assertEquals(invoiceApi.getInvoices(requestOptions).getPaginationMaxNbRecords(), 10);
         for (final UUID accountId : accounts) {
-            final List<Invoice> invoices = accountApi.getInvoicesForAccount(accountId, null, null, false, false, false, null, AuditLevel.NONE, requestOptions);
+            final List<Invoice> invoices = accountApi.getInvoicesForAccount(accountId, null, null, false, false, false, true, null, AuditLevel.NONE, requestOptions);
             assertEquals(invoices.size(), 2);
         }
 
         // Fix one account
-        final Response response = triggerInvoiceGenerationForParkedAccounts(1);
-        Assert.assertEquals(response.getResponseBody(), "{\"" + accounts.get(0) + "\":\"OK\"}");
+        final HttpResponse<InputStream> response = triggerInvoiceGenerationForParkedAccounts(1);
+        Assert.assertEquals(new String(response.body().readAllBytes(), StandardCharsets.UTF_8), "{\"" + accounts.get(0) + "\":\"OK\"}");
         Assert.assertEquals(invoiceApi.getInvoices(requestOptions).getPaginationMaxNbRecords(), 11);
 
         // Fix all accounts
-        final Response response2 = triggerInvoiceGenerationForParkedAccounts(4);
-        final Map<String, String> fixedAccounts = mapper.readValue(response2.getResponseBody(), new TypeReference<Map<String, String>>() {});
+        final HttpResponse<InputStream> response2 = triggerInvoiceGenerationForParkedAccounts(4);
+        final Map<String, String> fixedAccounts = mapper.readValue(response2.body(), new TypeReference<Map<String, String>>() {});
         Assert.assertEquals(fixedAccounts.size(), 4);
         Assert.assertEquals(fixedAccounts.get(accounts.get(1).toString()), "OK");
         Assert.assertEquals(fixedAccounts.get(accounts.get(2).toString()), "OK");
@@ -186,18 +189,18 @@ public class TestAdmin extends TestJaxrsBase {
         callbackServlet.assertListenerStatus();
     }
 
-    private Response triggerInvoiceGenerationForParkedAccounts(final int limit) throws KillBillClientException {
+    private HttpResponse<InputStream> triggerInvoiceGenerationForParkedAccounts(final int limit) throws KillBillClientException {
         final String uri = "/1.0/kb/admin/invoices";
 
         final RequestOptions requestOptions = RequestOptions.builder()
-                                                            .withQueryParams(ImmutableMultimap.<String, String>of(JaxrsResource.QUERY_SEARCH_LIMIT, String.valueOf(limit)))
+                                                            .withQueryParams(Map.of(JaxrsResource.QUERY_SEARCH_LIMIT, List.of(String.valueOf(limit))))
                                                             .withCreatedBy(createdBy)
                                                             .withReason(reason)
                                                             .withComment(comment).build();
         for (int i = 0; i < limit; i++) {
             callbackServlet.pushExpectedEvents(ExtBusEventType.TAG_DELETION, ExtBusEventType.INVOICE_CREATION, ExtBusEventType.INVOICE_PAYMENT_SUCCESS, ExtBusEventType.PAYMENT_SUCCESS);
         }
-        final Response response = killBillHttpClient.doPost(uri, null, requestOptions);
+        final HttpResponse<InputStream> response = killBillHttpClient.doPost(uri, null, requestOptions);
         callbackServlet.assertListenerStatus();
         return response;
     }

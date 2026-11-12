@@ -1,8 +1,8 @@
 /*
  * Copyright 2010-2014 Ning, Inc.
  * Copyright 2014-2020 Groupon, Inc
- * Copyright 2020-2021 Equinix, Inc
- * Copyright 2014-2021 The Billing Project, LLC
+ * Copyright 2020-2022 Equinix, Inc
+ * Copyright 2014-2022 The Billing Project, LLC
  *
  * The Billing Project licenses this file to you under the Apache License, version 2.0
  * (the "License"); you may not use this file except in compliance with the
@@ -32,10 +32,13 @@ import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 
 import javax.annotation.Nullable;
+import jakarta.inject.Inject;
 
 import org.joda.time.DateTime;
+import org.joda.time.LocalDate;
 import org.killbill.billing.callcontext.InternalTenantContext;
 import org.killbill.billing.catalog.api.BillingPeriod;
 import org.killbill.billing.catalog.api.CatalogApiException;
@@ -50,14 +53,9 @@ import org.killbill.billing.junction.BillingEvent;
 import org.killbill.billing.junction.BlockingInternalApi;
 import org.killbill.billing.subscription.api.SubscriptionBase;
 import org.killbill.billing.subscription.api.SubscriptionBaseTransitionType;
-
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Ordering;
-import com.google.inject.Inject;
+import org.killbill.commons.utils.Preconditions;
+import org.killbill.commons.utils.annotation.VisibleForTesting;
+import org.killbill.commons.utils.collect.Iterables;
 
 public class BlockingCalculator {
 
@@ -79,25 +77,27 @@ public class BlockingCalculator {
      * Given a set of billing events, add corresponding blocking (overdue) billing events.
      *
      * @param billingEvents the original list of billing events to update (without overdue events)
+     * @param cutoffDt an optional cutoffDt to filter out billing events
      */
     public boolean insertBlockingEvents(final SortedSet<BillingEvent> billingEvents,
                                         final Set<UUID> skippedSubscriptions,
                                         final Map<UUID, List<SubscriptionBase>> subscriptionsForAccount,
                                         final VersionedCatalog catalog,
+                                        @Nullable final LocalDate cutoffDt,
                                         final InternalTenantContext context) throws CatalogApiException {
         if (billingEvents.size() <= 0) {
             return false;
         }
 
-        final Collection<BillingEvent> billingEventsToAdd = new TreeSet<BillingEvent>();
-        final Collection<BillingEvent> billingEventsToRemove = new TreeSet<BillingEvent>();
+        final Collection<BillingEvent> billingEventsToAdd = new TreeSet<>();
+        final Collection<BillingEvent> billingEventsToRemove = new TreeSet<>();
 
-        final List<BlockingState> blockingEvents = blockingApi.getBlockingAllForAccount(catalog, context);
+        final List<BlockingState> blockingEvents = blockingApi.getBlockingActiveForAccount(catalog, cutoffDt, context);
 
         // Group blocking states per type
-        final Collection<BlockingState> accountBlockingEvents = new LinkedList<BlockingState>();
-        final Map<UUID, List<BlockingState>> perBundleBlockingEvents = new HashMap<UUID, List<BlockingState>>();
-        final Map<UUID, List<BlockingState>> perSubscriptionBlockingEvents = new HashMap<UUID, List<BlockingState>>();
+        final Collection<BlockingState> accountBlockingEvents = new LinkedList<>();
+        final Map<UUID, List<BlockingState>> perBundleBlockingEvents = new HashMap<>();
+        final Map<UUID, List<BlockingState>> perSubscriptionBlockingEvents = new HashMap<>();
         for (final BlockingState blockingEvent : blockingEvents) {
             if (blockingEvent.getType() == BlockingStateType.ACCOUNT) {
                 accountBlockingEvents.add(blockingEvent);
@@ -122,7 +122,7 @@ public class BlockingCalculator {
         for (final Entry<UUID, List<SubscriptionBase>> entry : subscriptionsForAccount.entrySet()) {
             final UUID bundleId = entry.getKey();
 
-            final List<BlockingState> bundleBlockingEvents = perBundleBlockingEvents.get(bundleId) != null ? perBundleBlockingEvents.get(bundleId) : ImmutableList.<BlockingState>of();
+            final List<BlockingState> bundleBlockingEvents = perBundleBlockingEvents.get(bundleId) != null ? perBundleBlockingEvents.get(bundleId) : Collections.emptyList();
 
             for (final SubscriptionBase subscription : entry.getValue()) {
                 // Avoid inserting additional events for subscriptions that don't even have a START event
@@ -130,16 +130,23 @@ public class BlockingCalculator {
                     continue;
                 }
 
-                final List<BlockingState> subscriptionBlockingEvents = perSubscriptionBlockingEvents.get(subscription.getId()) != null ? perSubscriptionBlockingEvents.get(subscription.getId()) : ImmutableList.<BlockingState>of();
-                final List<BlockingState> aggregateSubscriptionBlockingEvents = getAggregateBlockingEventsPerSubscription(subscription.getEndDate(), subscriptionBlockingEvents, bundleBlockingEvents, accountBlockingEvents);
-                final List<DisabledDuration> accountBlockingDurations = createBlockingDurations(aggregateSubscriptionBlockingEvents);
+                final List<BlockingState> subscriptionBlockingEvents = perSubscriptionBlockingEvents.get(subscription.getId()) != null ? perSubscriptionBlockingEvents.get(subscription.getId()) : Collections.emptyList();
+                final SortedSet<BillingEvent> subscriptionBillingEvents = perSubscriptionBillingEvents.getOrDefault(subscription.getId(), Collections.emptySortedSet());
+                // Subscription#getEndDate() is only set for CANCELLED subscriptions, so we need to use the last billing event to determine the termination date
+                final BillingEvent lastBillingEvent = !subscriptionBillingEvents.isEmpty() ? subscriptionBillingEvents.last() : null;
+                final DateTime terminationDate = lastBillingEvent != null &&
+                                                 (lastBillingEvent.getTransitionType() == SubscriptionBaseTransitionType.CANCEL ||
+                                                 lastBillingEvent.getTransitionType() == SubscriptionBaseTransitionType.EXPIRED)
+                                                 ? lastBillingEvent.getEffectiveDate() : null;
 
-                final SortedSet<BillingEvent> subscriptionBillingEvents = perSubscriptionBillingEvents.getOrDefault(subscription.getId(), ImmutableSortedSet.<BillingEvent>of());
+                final List<BlockingState> aggregateSubscriptionBlockingEvents = getAggregateBlockingEventsPerSubscription(terminationDate, subscriptionBlockingEvents, bundleBlockingEvents, accountBlockingEvents);
+                final List<DisabledDuration> aggregateBlockingDurations = createBlockingDurations(aggregateSubscriptionBlockingEvents);
 
-                final SortedSet<BillingEvent> newEvents = createNewEvents(accountBlockingDurations, subscriptionBillingEvents, context);
+
+                final SortedSet<BillingEvent> newEvents = createNewEvents(aggregateBlockingDurations, subscriptionBillingEvents, context);
                 billingEventsToAdd.addAll(newEvents);
 
-                final SortedSet<BillingEvent> removedEvents = eventsToRemove(accountBlockingDurations, subscriptionBillingEvents);
+                final SortedSet<BillingEvent> removedEvents = eventsToRemove(aggregateBlockingDurations, subscriptionBillingEvents);
                 billingEventsToRemove.addAll(removedEvents);
             }
         }
@@ -157,7 +164,7 @@ public class BlockingCalculator {
                                                                         final Iterable<BlockingState> subscriptionBlockingEvents,
                                                                         final Iterable<BlockingState> bundleBlockingEvents,
                                                                         final Iterable<BlockingState> accountBlockingEvents) {
-        final List<BlockingState> result = new LinkedList<BlockingState>();
+        final List<BlockingState> result = new LinkedList<>();
         for (final BlockingState bs : Iterables.concat(subscriptionBlockingEvents, bundleBlockingEvents, accountBlockingEvents)) {
             if (subscriptionEndDate == null || bs.getEffectiveDate().compareTo(subscriptionEndDate) <= 0) {
                 // Event is prior to cancel date
@@ -195,13 +202,13 @@ public class BlockingCalculator {
 
         for (final DisabledDuration duration : disabledDuration) {
             // The first one before the blocked duration
-            final BillingEvent precedingInitialEvent = precedingBillingEventForSubscription(duration.getStart(), subscriptionBillingEvents);
+            final BillingEvent precedingInitialEvent = precedingActiveBillingEventForSubscription(duration.getStart(), subscriptionBillingEvents);
             // The last one during of before the duration
-            final BillingEvent precedingFinalEvent = precedingBillingEventForSubscription(duration.getEnd(), subscriptionBillingEvents);
+            final BillingEvent precedingFinalEvent = precedingActiveBillingEventForSubscription(duration.getEnd(), subscriptionBillingEvents);
 
             if (precedingInitialEvent != null) { // there is a preceding billing event
                 result.add(createNewDisableEvent(duration.getStart(), precedingInitialEvent));
-                if (duration.getEnd() != null) { // no second event in the pair means they are still disabled (no re-enable)
+                if (duration.getEnd() != null && precedingFinalEvent != null) { // no second event in the pair means they are still disabled (no re-enable)
                     result.add(createNewReenableEvent(duration.getEnd(), precedingFinalEvent));
                 }
             } else if (precedingFinalEvent != null) { // can happen - e.g. phase event
@@ -212,8 +219,8 @@ public class BlockingCalculator {
         return result;
     }
 
-    protected BillingEvent precedingBillingEventForSubscription(final DateTime disabledDurationStart,
-                                                                final Iterable<BillingEvent> subscriptionBillingEvents) {
+    protected BillingEvent precedingActiveBillingEventForSubscription(final DateTime disabledDurationStart,
+                                                                      final Iterable<BillingEvent> subscriptionBillingEvents) {
         if (disabledDurationStart == null) {
             return null;
         }
@@ -227,12 +234,20 @@ public class BlockingCalculator {
                 prev = event;
             }
         }
+
+        // We ignore anything beyond the final event
+        // TODO 0.23.x
+        if (prev == null || prev.getTransitionType() == SubscriptionBaseTransitionType.CANCEL /*|| prev.getTransitionType() == SubscriptionBaseTransitionType.EXPIRED */) {
+            return null;
+        }
+
         return prev;
     }
 
     protected BillingEvent createNewDisableEvent(final DateTime disabledDurationStart,
                                                  final BillingEvent previousEvent) {
         final int billCycleDay = previousEvent.getBillCycleDayLocal();
+        final int quantity = previousEvent.getQuantity();
         final DateTime effectiveDate = disabledDurationStart;
         final PlanPhase planPhase = previousEvent.getPlanPhase();
         final Plan plan = previousEvent.getPlan();
@@ -255,14 +270,14 @@ public class BlockingCalculator {
                                        planPhase,
                                        fixedPrice,
                                        recurringPrice,
-                                       ImmutableList.of(),
+                                       Collections.emptyList(),
                                        currency,
                                        billingPeriod,
                                        billCycleDay,
+                                       quantity,
                                        description,
                                        totalOrdering,
-                                       type,
-                                       true
+                                       type
         );
     }
 
@@ -270,6 +285,7 @@ public class BlockingCalculator {
                                                   final BillingEvent previousEvent) throws CatalogApiException {
         // All fields are populated with the event state from before the blocking period, for invoice to resume invoicing
         final int billCycleDay = previousEvent.getBillCycleDayLocal();
+        final int quantity = previousEvent.getQuantity();
         final DateTime effectiveDate = odEventTime;
         final PlanPhase planPhase = previousEvent.getPlanPhase();
         final BigDecimal fixedPrice = previousEvent.getFixedPrice();
@@ -293,10 +309,10 @@ public class BlockingCalculator {
                                        currency,
                                        billingPeriod,
                                        billCycleDay,
+                                       quantity,
                                        description,
                                        totalOrdering,
-                                       type,
-                                       false
+                                       type
         );
     }
 
@@ -315,7 +331,9 @@ public class BlockingCalculator {
         for (final Entry<String, BlockingStateService> entry : svcBlockedMap.entrySet()) {
             unorderedDisabledDuration.addAll(entry.getValue().build());
         }
-        final List<DisabledDuration> sortedDisabledDuration = Ordering.natural().sortedCopy(unorderedDisabledDuration);
+        final List<DisabledDuration> sortedDisabledDuration = unorderedDisabledDuration.stream()
+                .sorted()
+                .collect(Collectors.toUnmodifiableList());
 
         DisabledDuration prevDuration = null;
         for (final DisabledDuration d : sortedDisabledDuration) {

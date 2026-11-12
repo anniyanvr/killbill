@@ -16,13 +16,12 @@
 
 package org.killbill.billing.currency.glue;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
+import jakarta.inject.Provider;
 
 import org.killbill.billing.currency.DefaultCurrencyProviderPluginRegistry;
 import org.killbill.billing.currency.plugin.api.CurrencyPluginApi;
 import org.killbill.billing.osgi.api.OSGIServiceRegistration;
-
-import com.google.inject.Provider;
 
 public class DefaultCurrencyProviderPluginRegistryProvider implements Provider<OSGIServiceRegistration<CurrencyPluginApi>> {
 

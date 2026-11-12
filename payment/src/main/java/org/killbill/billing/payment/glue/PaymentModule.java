@@ -18,7 +18,7 @@
 
 package org.killbill.billing.payment.glue;
 
-import javax.inject.Provider;
+import jakarta.inject.Provider;
 
 import org.killbill.automaton.DefaultStateMachineConfig;
 import org.killbill.automaton.StateMachineConfig;
@@ -33,6 +33,7 @@ import org.killbill.billing.payment.api.InvoicePaymentApi;
 import org.killbill.billing.payment.api.InvoicePaymentInternalApi;
 import org.killbill.billing.payment.api.PaymentApi;
 import org.killbill.billing.payment.api.PaymentGatewayApi;
+import org.killbill.billing.payment.api.PaymentListenerService;
 import org.killbill.billing.payment.api.PaymentService;
 import org.killbill.billing.payment.api.svcs.DefaultInvoicePaymentInternalApi;
 import org.killbill.billing.payment.bus.PaymentBusEventHandler;
@@ -63,14 +64,14 @@ import org.killbill.billing.payment.retry.DefaultRetryService;
 import org.killbill.billing.payment.retry.DefaultRetryService.DefaultRetryServiceScheduler;
 import org.killbill.billing.payment.retry.RetryService;
 import org.killbill.billing.platform.api.KillbillConfigSource;
+import org.killbill.commons.utils.annotation.VisibleForTesting;
 import org.killbill.billing.util.config.definition.PaymentConfig;
 import org.killbill.billing.tenant.api.TenantInternalApi.CacheInvalidationCallback;
 import org.killbill.billing.util.glue.KillBillModule;
+import org.killbill.commons.utils.io.Resources;
 import org.killbill.xmlloader.XMLLoader;
-import org.skife.config.ConfigurationObjectFactory;
+import org.skife.config.AugmentedConfigurationObjectFactory;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.io.Resources;
 import com.google.inject.Key;
 import com.google.inject.TypeLiteral;
 import com.google.inject.name.Names;
@@ -142,7 +143,7 @@ public class PaymentModule extends KillBillModule {
 
     @Override
     protected void configure() {
-        final ConfigurationObjectFactory factory = new ConfigurationObjectFactory(skifeConfigSource);
+        final AugmentedConfigurationObjectFactory factory = new AugmentedConfigurationObjectFactory(skifeConfigSource);
         final PaymentConfig paymentConfig = factory.build(PaymentConfig.class);
         bind(PaymentConfig.class).annotatedWith(Names.named(KillBillModule.STATIC_CONFIG)).toInstance(paymentConfig);
         bind(PaymentConfig.class).to(MultiTenantPaymentConfig.class).asEagerSingleton();
@@ -157,9 +158,10 @@ public class PaymentModule extends KillBillModule {
         bind(InvoicePaymentInternalApi.class).to(DefaultInvoicePaymentInternalApi.class).asEagerSingleton();
         bind(PaymentGatewayApi.class).to(DefaultPaymentGatewayApi.class).asEagerSingleton();
         bind(AdminPaymentApi.class).to(DefaultAdminPaymentApi.class).asEagerSingleton();
-        bind(PaymentBusEventHandler.class).asEagerSingleton();
         bind(PaymentTagHandler.class).asEagerSingleton();
         bind(PaymentService.class).to(DefaultPaymentService.class).asEagerSingleton();
+        bind(PaymentBusEventHandler.class).asEagerSingleton();
+        bind(PaymentListenerService.class).to(PaymentBusEventHandler.class).asEagerSingleton();
         bind(PaymentExecutors.class).asEagerSingleton();
         installPaymentProviderPlugins(paymentConfig);
         installPaymentDao();

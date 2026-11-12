@@ -20,9 +20,10 @@ package org.killbill.billing.overdue.caching;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 
 import javax.annotation.Nullable;
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.killbill.billing.ErrorCode;
 import org.killbill.billing.ObjectType;
@@ -115,7 +116,7 @@ public class DefaultOverdueConfigCache implements OverdueConfigCache {
         final LoaderCallback loaderCallback = new LoaderCallback() {
             @Override
             public OverdueConfig loadOverdueConfig(final String overdueConfigXML) throws OverdueApiException {
-                final InputStream overdueConfigStream = new ByteArrayInputStream(overdueConfigXML.getBytes());
+                final InputStream overdueConfigStream = new ByteArrayInputStream(overdueConfigXML.getBytes(StandardCharsets.UTF_8));
                 try {
                     return XMLLoader.getObjectFromStream(overdueConfigStream, DefaultOverdueConfig.class);
                 } catch (final Exception e) {

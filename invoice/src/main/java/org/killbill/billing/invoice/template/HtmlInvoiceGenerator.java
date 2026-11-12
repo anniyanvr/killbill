@@ -23,56 +23,72 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.ResourceBundle;
+import java.util.Set;
 
 import javax.annotation.Nullable;
+import jakarta.inject.Inject;
 
 import org.killbill.billing.account.api.Account;
 import org.killbill.billing.callcontext.InternalTenantContext;
 import org.killbill.billing.currency.api.CurrencyConversionApi;
 import org.killbill.billing.invoice.api.Invoice;
 import org.killbill.billing.invoice.api.formatters.InvoiceFormatter;
-import org.killbill.billing.invoice.api.formatters.InvoiceFormatterFactory;
 import org.killbill.billing.invoice.api.formatters.ResourceBundleFactory;
 import org.killbill.billing.invoice.api.formatters.ResourceBundleFactory.ResourceBundleType;
+import org.killbill.billing.invoice.branding.BrandingLoader;
+import org.killbill.billing.invoice.plugin.api.InvoiceFormatterFactory;
 import org.killbill.billing.invoice.template.translator.DefaultInvoiceTranslator;
+import org.killbill.billing.osgi.api.OSGIServiceRegistration;
 import org.killbill.billing.tenant.api.TenantInternalApi;
-import org.killbill.billing.util.LocaleUtils;
+import org.killbill.billing.tenant.api.TenantKV.TenantKey;
+import org.killbill.billing.tenant.api.TenantUserApi;
 import org.killbill.billing.util.callcontext.InternalCallContextFactory;
+import org.killbill.billing.util.callcontext.TenantContext;
 import org.killbill.billing.util.email.templates.TemplateEngine;
-import org.killbill.billing.util.io.IOUtils;
 import org.killbill.billing.util.template.translation.TranslatorConfig;
+import org.killbill.commons.utils.Strings;
+import org.killbill.commons.utils.io.IOUtils;
+import org.killbill.commons.utils.locale.LocaleUtils;
 import org.killbill.xmlloader.UriAccessor;
-
-import com.google.common.base.Strings;
-import com.google.inject.Inject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class HtmlInvoiceGenerator {
 
-    private final InvoiceFormatterFactory factory;
+    private static final Logger log = LoggerFactory.getLogger(HtmlInvoiceGenerator.class);
+
+    private final InvoiceFormatterFactory builtInInvoiceFormatterFactory;
+    private final OSGIServiceRegistration<InvoiceFormatterFactory> invoiceFormatterFactoryPluginRegistry;
+
     private final TranslatorConfig config;
     private final CurrencyConversionApi currencyConversionApi;
     private final TemplateEngine templateEngine;
     private final TenantInternalApi tenantApi;
     private final ResourceBundleFactory bundleFactory;
+    private final BrandingLoader brandingLoader;
 
     @Inject
-    public HtmlInvoiceGenerator(final InvoiceFormatterFactory factory,
+    public HtmlInvoiceGenerator(final InvoiceFormatterFactory builtInInvoiceFormatterFactory,
+                                final OSGIServiceRegistration<InvoiceFormatterFactory> invoiceFormatterFactoryPluginRegistry,
                                 final TemplateEngine templateEngine,
                                 final TranslatorConfig config,
                                 final CurrencyConversionApi currencyConversionApi,
                                 final ResourceBundleFactory bundleFactory,
-                                final TenantInternalApi tenantInternalApi) {
-        this.factory = factory;
+                                final TenantInternalApi tenantInternalApi,
+                                final TenantUserApi tenantUserApi) {
+        this.builtInInvoiceFormatterFactory = builtInInvoiceFormatterFactory;
+        this.invoiceFormatterFactoryPluginRegistry = invoiceFormatterFactoryPluginRegistry;
         this.config = config;
         this.currencyConversionApi = currencyConversionApi;
         this.templateEngine = templateEngine;
         this.bundleFactory = bundleFactory;
         this.tenantApi = tenantInternalApi;
+        this.brandingLoader = new BrandingLoader(tenantUserApi);
     }
 
-    public HtmlInvoice generateInvoice(final Account account, @Nullable final Invoice invoice, final boolean manualPay, final InternalTenantContext context) throws IOException {
+    public HtmlInvoice generateInvoice(final Account account, @Nullable final Invoice invoice, final boolean manualPay, final InternalTenantContext context, final TenantContext tenantContext) throws IOException {
         // Don't do anything if the invoice is null
-        if (invoice == null) {
+        if (invoice == null || invoice.getNumberOfItems() == 0) {
             return null;
         }
 
@@ -90,8 +106,29 @@ public class HtmlInvoiceGenerator {
         data.put("text", invoiceTranslator);
         data.put("account", account);
 
-        final InvoiceFormatter formattedInvoice = factory.createInvoiceFormatter(config, invoice, locale, currencyConversionApi, bundleFactory, context);
+        InvoiceFormatterFactory invoiceFormatterFactory;
+        final String invoiceFormatterFactoryPluginName = config.getInvoiceFormatterFactoryPluginName();
+        if (!Strings.isNullOrEmpty(invoiceFormatterFactoryPluginName)) {
+            invoiceFormatterFactory = invoiceFormatterFactoryPluginRegistry.getServiceForName(invoiceFormatterFactoryPluginName);
+            if(invoiceFormatterFactory == null) {
+                invoiceFormatterFactory = builtInInvoiceFormatterFactory;
+            }
+        } else {
+            final Set<String> services = invoiceFormatterFactoryPluginRegistry.getAllServices();
+            invoiceFormatterFactory = services.size() == 1 ? invoiceFormatterFactoryPluginRegistry.getServiceForName(services.iterator().next()) : builtInInvoiceFormatterFactory;
+            if (services.size() > 1) {
+                log.warn("More than one InvoiceFormatter is configured, so using built-in InvoiceFormatter");
+            }
+
+        }
+        final ResourceBundle bundle = bundleFactory.createBundle(locale, config.getCatalogBundlePath(), ResourceBundleType.CATALOG_TRANSLATION, context);
+        final ResourceBundle defaultBundle = bundleFactory.createBundle(LocaleUtils.toLocale(config.getDefaultLocale()), config.getCatalogBundlePath(), ResourceBundleType.CATALOG_TRANSLATION, context);
+        final InvoiceFormatter formattedInvoice = invoiceFormatterFactory.createInvoiceFormatter(config.getDefaultLocale(), config.getCatalogBundlePath(), invoice, locale, currencyConversionApi, bundle, defaultBundle, tenantContext);
         data.put("invoice", formattedInvoice);
+
+        data.put("company", brandingLoader.getCompanyInfo(TenantKey.INVOICE_TEMPLATE_COMPANY_INFO, TenantKey.COMPANY_INFO, tenantContext));
+        data.put("logo", brandingLoader.getLogoInfo(TenantKey.INVOICE_TEMPLATE_LOGO_INFO, TenantKey.LOGO_INFO, tenantContext));
+        data.put("brand", brandingLoader.getBrandInfo(TenantKey.INVOICE_TEMPLATE_BRAND_INFO, TenantKey.BRAND_INFO, tenantContext));
 
         invoiceData.setSubject(invoiceTranslator.getInvoiceEmailSubject());
         final String templateText = getTemplateText(locale, manualPay, context);
@@ -116,7 +153,7 @@ public class HtmlInvoiceGenerator {
         try {
             final InputStream templateStream = UriAccessor.accessUri(templateName);
             return IOUtils.toString(templateStream);
-        } catch (URISyntaxException e) {
+        } catch (final URISyntaxException e) {
             throw new IOException(e);
         }
     }

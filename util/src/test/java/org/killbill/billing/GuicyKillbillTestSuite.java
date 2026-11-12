@@ -23,7 +23,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.joda.time.DateTime;
 import org.killbill.billing.api.AbortAfterFirstFailureListener;
@@ -39,17 +39,20 @@ import org.killbill.billing.util.glue.RedissonCacheClientProvider;
 import org.killbill.clock.Clock;
 import org.killbill.clock.ClockMock;
 import org.killbill.clock.DistributedClockMock;
+import org.killbill.commons.utils.annotation.VisibleForTesting;
 import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 import org.redisson.api.RedissonClient;
 import org.skife.config.ConfigSource;
+import org.skife.config.RuntimeConfigRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.IHookCallBack;
 import org.testng.IHookable;
 import org.testng.ITestNGMethod;
 import org.testng.ITestResult;
+import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.AfterSuite;
 import org.testng.annotations.BeforeClass;
@@ -57,8 +60,6 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.BeforeSuite;
 import org.testng.annotations.Listeners;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ImmutableMap;
 import redis.embedded.RedisServer;
 
 import static org.testng.ITestResult.CREATED;
@@ -84,7 +85,10 @@ public class GuicyKillbillTestSuite implements IHookable {
     protected KillbillConfigSource configSource;
     protected ConfigSource skifeConfigSource;
 
-    private RedissonClient redissonClient;
+    // Have no option to change from correctly typed (RedissonClient) to Object to avoid class-loading error
+    // when Redis not present. Pretty OK because the reason why this existed is just to call shutdown() on
+    // globalAfterSuite()
+    private Object redissonClient;
 
     @Inject
     protected InternalCallContextFactory internalCallContextFactory;
@@ -229,7 +233,7 @@ public class GuicyKillbillTestSuite implements IHookable {
             redissonClient = new RedissonCacheClientProvider("redis://127.0.0.1:56379", 1, null).get();
 
             theRealClock = new DistributedClockMock();
-            ((DistributedClockMock) theRealClock).setRedissonClient(redissonClient);
+            ((DistributedClockMock) theRealClock).setRedissonClient((RedissonClient) redissonClient);
 
             extraPropertiesForTestSuite.put("org.killbill.cache.config.redis", "true");
             extraPropertiesForTestSuite.put("org.killbill.cache.config.redis.url", "redis://127.0.0.1:56379");
@@ -243,6 +247,8 @@ public class GuicyKillbillTestSuite implements IHookable {
 
     @BeforeClass(alwaysRun = true)
     public void globalBeforeTest() {
+        RuntimeConfigRegistry.clear();
+
         configSource = getConfigSource(extraPropertiesForTestSuite);
         skifeConfigSource = new ConfigSource() {
             @Override
@@ -272,10 +278,15 @@ public class GuicyKillbillTestSuite implements IHookable {
                              });
     }
 
+    @AfterClass(alwaysRun = true)
+    public void globalAfterTest() {
+        RuntimeConfigRegistry.clear();
+    }
+
     @AfterSuite(alwaysRun = true)
     public void globalAfterSuite() {
         if (redissonClient != null) {
-            redissonClient.shutdown();
+            ((RedissonClient) redissonClient).shutdown();
         }
         if (redisServer != null) {
             redisServer.stop();

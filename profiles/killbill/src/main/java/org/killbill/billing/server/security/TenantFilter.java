@@ -19,23 +19,23 @@
 package org.killbill.billing.server.security;
 
 import java.io.IOException;
+import java.util.List;
 
-import javax.inject.Inject;
-import javax.inject.Singleton;
-import javax.servlet.Filter;
-import javax.servlet.FilterChain;
-import javax.servlet.FilterConfig;
-import javax.servlet.ServletException;
-import javax.servlet.ServletRequest;
-import javax.servlet.ServletResponse;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
+import jakarta.servlet.Filter;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.FilterConfig;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletResponse;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 import org.apache.shiro.authc.AuthenticationException;
 import org.apache.shiro.authc.AuthenticationToken;
 import org.apache.shiro.authc.UsernamePasswordToken;
 import org.apache.shiro.authc.pam.ModularRealmAuthenticator;
-import org.apache.shiro.realm.Realm;
 import org.killbill.billing.jaxrs.resources.JaxrsResource;
 import org.killbill.billing.jaxrs.resources.KillBillApiDefinition;
 import org.killbill.billing.jaxrs.util.Context;
@@ -45,8 +45,6 @@ import org.killbill.billing.tenant.api.TenantApiException;
 import org.killbill.billing.tenant.api.TenantUserApi;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.common.collect.ImmutableList;
 
 @Singleton
 public class TenantFilter implements Filter {
@@ -69,7 +67,7 @@ public class TenantFilter implements Filter {
     public void init(final FilterConfig filterConfig) throws ServletException {
         // We use Shiro to verify the api credentials - but the Shiro Subject is only used for RBAC
         modularRealmAuthenticator = new ModularRealmAuthenticator();
-        modularRealmAuthenticator.setRealms(ImmutableList.<Realm>of(killbillJdbcTenantRealm));
+        modularRealmAuthenticator.setRealms(List.of(killbillJdbcTenantRealm));
     }
 
     @Override

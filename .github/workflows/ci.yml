@@ -1,138 +1,247 @@
 name: ci
 
 on:
-  - push
-  - workflow_dispatch
-
-env:
-  MAVEN_FLAGS: "-e -B --no-transfer-progress"
-  MAVEN_OPTS: "-Xmx2G -XX:+ExitOnOutOfMemoryError -Dmaven.wagon.rto=60000 -Dmaven.wagon.httpconnectionManager.ttlSeconds=25 -Dmaven.wagon.http.retryHandler.count=3"
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      purge-cache:
+        description: Purge the existing Maven dependency cache (for this branch/ref) before restoring it
+        required: false
+        default: false
+        type: boolean
 
 jobs:
-  tests:
+  ci:
+    uses: killbill/gh-actions-shared/.github/workflows/ci.yml@main
+    with:
+      purge-cache: ${{ inputs.purge-cache || false }}
+    secrets:
+      CLOUDSMITH_CENTRAL_PASSWORD: ${{ secrets.CLOUDSMITH_CENTRAL_PASSWORD }}
+      CLOUDSMITH_KILLBILL_MAVEN_REPO_PASSWORD: ${{ secrets.CLOUDSMITH_KILLBILL_MAVEN_REPO_PASSWORD }}
+  e2e:
     runs-on: ubuntu-latest
+    env:
+      # Workaround until https://github.com/s4u/maven-settings-action/issues/464 is fixed:
+      # this action cannot emit Maven's native <repositoryOrigins> server field, so
+      # credentials configured for ids like "central"/"killbill-maven-repository" (reused
+      # to point at Cloudsmith) are silently dropped under Maven 3.10+'s stricter,
+      # origin-based credential scoping. Fall back to legacy id-only credential matching.
+      MAVEN_ARGS: -ntp -Dmaven.repository.credentialScope=id
+    permissions:
+      contents: read
+      actions: write
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+        - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=10
     strategy:
-      fail-fast: false
       matrix:
-        java-version:
-          - 8
-          - 11
-        java-distribution:
-          - adopt
-          - zulu
-        profile:
-          - travis
-          - mysql
-          - postgresql
+        include:
+          - ruby-version: '3.2'
+            ref: refs/heads/master
+            database-adapter: 'mysql2'
+            database-user: 'root'
+            database-password: 'root'
+            database-port: '3306'
+            database: 'mysql'
+            java-version: '21'
+            java-distribution: 'temurin'
+            # Pinned version needed. Otherwise, we will get surprised because GitHub Actions
+            # updates the runner's pre-installed Maven version periodically.
+            maven_version: '3.10.0'
     steps:
       - name: Checkout killbill
-        uses: actions/checkout@v2
+        uses: actions/checkout@v6
         with:
-          repository: killbill/killbill
-          ref: ${{ github.ref }}
-          path: killbill
-      - name: Setup Java
-        uses: actions/setup-java@v2
+          persist-credentials: false
+      - name: Set up JDK
+        uses: actions/setup-java@v5
         with:
-          distribution: ${{ matrix.java-distribution }}
           java-version: ${{ matrix.java-version }}
-      - name: Configure Sonatype mirror
-        uses: s4u/maven-settings-action@v2.3.0
-        # Go to Sonatype directly to avoid delay syncs (could get rid of this if actions/setup-java were to support mirrors).
-        with:
-          mirrors: '[{"id": "oss-releases", "name": "Sonatype releases", "mirrorOf": "*", "url": "https://oss.sonatype.org/content/repositories/releases/"}]'
-      - name: Check if killbill-oss-parent SNAPSHOT must be fetched
-        id: killbill-oss-parent
-        run: |
-          REMOTE_SHA=$(git ls-remote --heads https://github.com/killbill/killbill-oss-parent.git ${GITHUB_REF##*/})
-          echo "killbill-oss-parent branch=${GITHUB_REF##*/} sha=${REMOTE_SHA}"
-          cd $GITHUB_WORKSPACE/killbill
-          # Cannot use mvn help:evaluate unfortunately, as the project isn't buildable yet
-          PARENT_POM_VERSION=$(
-             awk '
-              /<dependenc/{exit}
-              /<parent>/{parent++};
-              /<version>/{
-                if (parent == 1) {
-                  sub(/.*<version>/, "");
-                  sub(/<.*/, "");
-                  parent_version = $0;
-                }
-              }
-              /<\/parent>/{parent--};
-              END {
-                print parent_version
-              }' pom.xml
-          )
-          echo "killbill-oss-parent version=${PARENT_POM_VERSION}"
-          if [[ "$PARENT_POM_VERSION" =~ .*"-SNAPSHOT".* ]] && [ ! -z "$REMOTE_SHA" ]; then
-            echo "::set-output name=FETCH_SNAPSHOT::true"
-          else
-            echo "::set-output name=FETCH_SNAPSHOT::false"
-          fi
-      - name: Checkout killbill-oss-parent
-        if: steps.killbill-oss-parent.outputs.FETCH_SNAPSHOT == 'true'
-        uses: actions/checkout@v2
-        with:
-          repository: killbill/killbill-oss-parent
-          ref: ${{ github.ref }}
-          path: killbill-oss-parent
-      - name: Build killbill-oss-parent
-        if: steps.killbill-oss-parent.outputs.FETCH_SNAPSHOT == 'true'
-        run: |
-          cd $GITHUB_WORKSPACE/killbill-oss-parent
-          mvn ${MAVEN_FLAGS} clean install -DskipTests=true
-      - name: Checkout killbill-commons
-        if: steps.killbill-oss-parent.outputs.FETCH_SNAPSHOT == 'true'
-        uses: actions/checkout@v2
-        with:
-          repository: killbill/killbill-commons
-          ref: ${{ github.ref }}
-          path: killbill-commons
-      - name: Build killbill-commons
-        if: steps.killbill-oss-parent.outputs.FETCH_SNAPSHOT == 'true'
-        run: |
-          cd $GITHUB_WORKSPACE/killbill-commons
-          mvn ${MAVEN_FLAGS} clean install -DskipTests=true
-      - name: Checkout killbill-plugin-framework-java
-        if: steps.killbill-oss-parent.outputs.FETCH_SNAPSHOT == 'true'
-        uses: actions/checkout@v2
-        with:
-          repository: killbill/killbill-plugin-framework-java
-          ref: ${{ github.ref }}
-          path: killbill-plugin-framework-java
-      - name: Build killbill-plugin-framework-java
-        if: steps.killbill-oss-parent.outputs.FETCH_SNAPSHOT == 'true'
-        run: |
-          cd $GITHUB_WORKSPACE/killbill-plugin-framework-java
-          mvn ${MAVEN_FLAGS} clean install -DskipTests=true
-      - name: Checkout killbill-platform
-        if: steps.killbill-oss-parent.outputs.FETCH_SNAPSHOT == 'true'
-        uses: actions/checkout@v2
-        with:
-          repository: killbill/killbill-platform
-          ref: ${{ github.ref }}
-          path: killbill-platform
-      - name: Build killbill-platform
-        if: steps.killbill-oss-parent.outputs.FETCH_SNAPSHOT == 'true'
-        run: |
-          cd $GITHUB_WORKSPACE/killbill-platform
-          mvn ${MAVEN_FLAGS} clean install -DskipTests=true
-      - name: Checkout killbill-client-java
-        if: steps.killbill-oss-parent.outputs.FETCH_SNAPSHOT == 'true'
-        uses: actions/checkout@v2
-        with:
-          repository: killbill/killbill-client-java
-          ref: ${{ github.ref }}
-          path: killbill-client-java
-      - name: Build killbill-client-java
-        if: steps.killbill-oss-parent.outputs.FETCH_SNAPSHOT == 'true'
-        run: |
-          cd $GITHUB_WORKSPACE/killbill-client-java
-          mvn ${MAVEN_FLAGS} clean install -DskipTests=true
-      - name: Tests
+          distribution: ${{ matrix.java-distribution }}
+      - name: Purge Maven dependency cache
+        if: inputs.purge-cache
+        continue-on-error: true
         env:
-          MAVEN_PROFILE: ${{ matrix.profile }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cd $GITHUB_WORKSPACE/killbill
-          mvn ${MAVEN_FLAGS} clean install -P${MAVEN_PROFILE}
+          gh cache list --key maven- --ref "${{ github.ref }}" --limit 100 --json id --jq '.[].id' \
+            | xargs -r -n1 gh cache delete
+      - name: Cache Maven repository
+        uses: actions/cache@v5
+        with:
+          path: ~/.m2/repository
+          key: maven-${{ runner.os }}-${{ hashFiles('**/pom.xml', '**/.mvn/extensions.xml', '**/.mvn/wrapper/maven-wrapper.properties') }}
+          restore-keys: |
+            maven-${{ runner.os }}-
+      - name: Configure Cloudsmith credentials
+        uses: s4u/maven-settings-action@v4.0.0
+        with:
+          # e2e job doesn't need "cloudsmith" (deploy-only server id).
+          githubServer: false
+          servers: |
+            [
+              {"id": "central", "username": "token", "password": "${{ secrets.CLOUDSMITH_CENTRAL_PASSWORD }}"},
+              {"id": "killbill-maven-repository", "username": "token", "password": "${{ secrets.CLOUDSMITH_KILLBILL_MAVEN_REPO_PASSWORD }}"}
+            ]
+          repositories: |
+            [
+              {
+                "id": "central",
+                "name": "Proxied Maven Central OSS repository at Cloudsmith",
+                "url": "https://dl.cloudsmith.io/basic/killbill/oss/maven/",
+                "releases": { "enabled": "true", "updatePolicy": "always" },
+                "snapshots": { "enabled": "true", "updatePolicy": "always" }
+              },
+              {
+                "id": "killbill-maven-repository",
+                "name": "Proxy for most Kill Bill artifacts at Cloudsmith",
+                "url": "https://dl.cloudsmith.io/basic/killbill/killbill-maven-repository/maven/",
+                "releases": { "enabled": "true", "updatePolicy": "always" },
+                "snapshots": { "enabled": "true", "updatePolicy": "always" }
+              }
+            ]
+          pluginRepositories: |
+            [
+              {
+                "id": "central",
+                "name": "Proxied Maven Central OSS repository at Cloudsmith",
+                "url": "https://dl.cloudsmith.io/basic/killbill/oss/maven/",
+                "releases": { "enabled": "true", "updatePolicy": "always" },
+                "snapshots": { "enabled": "true", "updatePolicy": "always" }
+              },
+              {
+                "id": "killbill-maven-repository",
+                "name": "Proxy for most Kill Bill artifacts at Cloudsmith",
+                "url": "https://dl.cloudsmith.io/basic/killbill/killbill-maven-repository/maven/",
+                "releases": { "enabled": "true", "updatePolicy": "always" },
+                "snapshots": { "enabled": "true", "updatePolicy": "always" }
+              }
+            ]
+      - name: Set up Maven
+        run: mvn --errors --batch-mode --show-version wrapper:wrapper "-Dmaven=${{ matrix.maven_version }}"
+      - name: Build Kill Bill
+        run: ./mvnw --errors --batch-mode --show-version clean install -DskipTests=true -Dcheck.skip-dependency=true -Dcheck.skip-dependency-scope=true -Dcheck.skip-dependency-versions=true -Dcheck.skip-duplicate-finder=true -Dcheck.skip-enforcer=true -Dcheck.skip-rat=true -Dcheck.skip-spotbugs=true
+      - name: Wait for MySQL
+        if: ${{ matrix.database == 'mysql' }}
+        run: |
+          set +e
+          count=0
+          until mysqladmin ping -h 127.0.0.1 -u root --password=root --silent; do
+            if [[ "$count" == "25" ]]; then
+              exit 1
+            fi
+            (( count++ ))
+            printf '.'
+            sleep 5
+          done
+          set -e
+      - name: Wait for PostgreSQL
+        if: ${{ matrix.database == 'postgresql' }}
+        run: |
+          set +e
+          count=0
+          until $(psql -h 127.0.0.1 -U postgres -p 5432 -l > /dev/null); do
+            if [[ "$count" == "25" ]]; then
+              exit 1
+            fi
+            (( count++ ))
+            printf '.'
+            sleep 5
+          done
+          set -e
+      - name: Setup latest DDL
+        if: ${{ matrix.database == 'mysql' }}
+        run: |
+          mysql -h 127.0.0.1 -u root --password=root -e 'create database killbill'
+          chmod +x ./bin/db-helper
+          ./bin/db-helper -a create --driver mysql -u root -p root -t yes -h 127.0.0.1
+      - name: Setup latest DDL
+        if: ${{ matrix.database == 'postgresql' }}
+        run: |
+          psql -h 127.0.0.1 -U postgres -p 5432 -c 'create database killbill'
+          chmod +x ./bin/db-helper
+          ./bin/db-helper -a create --driver postgres -u postgres -t yes -h 127.0.0.1 --port 5432
+      - name: Install plugin specific MySQL DDL
+        if: ${{ matrix.database == 'mysql' }}
+        run: |
+          curl https://raw.githubusercontent.com/killbill/killbill-avatax-plugin/master/src/main/resources/ddl.sql | mysql -h 127.0.0.1 -u root --password=root killbill
+          curl https://raw.githubusercontent.com/killbill/killbill-payment-test-plugin/master/src/main/resources/ddl.sql | mysql -h 127.0.0.1 -u root --password=root killbill
+          curl https://raw.githubusercontent.com/killbill/killbill-email-notifications-plugin/master/src/main/resources/ddl.sql | mysql -h 127.0.0.1 -u root --password=root killbill
+      - name: Install plugin specific PostgreSQL DDL
+        if: ${{ matrix.database == 'postgresql' }}
+        run: |
+          curl https://raw.githubusercontent.com/killbill/killbill-avatax-plugin/master/src/main/resources/ddl.sql | psql -h 127.0.0.1 -U postgres -p 5432 -d killbill
+          curl https://raw.githubusercontent.com/killbill/killbill-payment-test-plugin/master/src/main/resources/ddl.sql | psql -h 127.0.0.1 -U postgres -p 5432 -d killbill
+          curl https://raw.githubusercontent.com/killbill/killbill-email-notifications-plugin/master/src/main/resources/ddl.sql | psql -h 127.0.0.1 -U postgres -p 5432 -d killbill
+      - name: Start Kill Bill
+        timeout-minutes: 4
+        run: |
+          mkdir -p /tmp/test-results
+          nohup ./bin/start-server -s > /tmp/test-results/killbill.log 2>&1 &
+          count=0
+          until $(curl --connect-timeout 10 --max-time 30 --output /dev/null --silent --fail http://127.0.0.1:8080/1.0/healthcheck); do
+            if [[ "$count" == "180" ]]; then
+              exit 64
+            fi
+            count=$(( count + 1 ))
+            sleep 1
+          done
+          curl --connect-timeout 10 --max-time 30 -v \
+               -X POST \
+               -u admin:password \
+               -H 'Content-Type: application/json' \
+               -H 'X-Killbill-CreatedBy: GitHub' \
+               -d '{"apiKey": "bob", "apiSecret": "lazar"}' \
+               "http://127.0.0.1:8080/1.0/kb/tenants"
+      - name: Checkout killbill-integration-tests
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          path: killbill-integration-tests
+          repository: killbill/killbill-integration-tests
+          ref: ${{ matrix.ref }}
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby-version }}
+          # Required for caching
+          working-directory: ${{github.workspace}}/killbill-integration-tests
+          bundler-cache: true
+      - name: Install dependencies
+        working-directory: ${{github.workspace}}/killbill-integration-tests
+        run: |
+          bundle install --jobs=4 --retry=3
+      - name: Run core tests
+        env:
+          DB_ADAPTER: ${{ matrix.database-adapter }}
+          DB_USER: ${{ matrix.database-user }}
+          DB_PASSWORD: ${{ matrix.database-password }}
+          DB_PORT: ${{ matrix.database-port }}
+        working-directory: ${{github.workspace}}/killbill-integration-tests
+        run: |
+          bundle exec rake test:core TESTOPTS="--stop-on-failure"
+      # https://github.com/killbill/killbill-integration-tests/issues/43
+      # TODO add missing creds
+      # - name: Run plugins tests
+      #   env:
+      #     DB_ADAPTER: ${{ matrix.database-adapter }}
+      #     DB_USER: ${{ matrix.database-user }}
+      #     DB_PASSWORD: ${{ matrix.database-password }}
+      #     DB_PORT: ${{ matrix.database-port }}
+      #   working-directory: ${{github.workspace}}/killbill-integration-tests
+      #   run: |
+      #     bundle exec rake test:plugins TESTOPTS="--stop-on-failure"
+      - name: Upload artifact on failure
+        uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: failure-${{ matrix.database }}
+          path: /tmp/test-results/killbill.log

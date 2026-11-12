@@ -17,13 +17,15 @@
 
 package org.killbill.billing.catalog.plugin;
 
-import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import javax.annotation.Nullable;
 
@@ -43,6 +45,7 @@ import org.killbill.billing.catalog.DefaultTier;
 import org.killbill.billing.catalog.DefaultTieredBlock;
 import org.killbill.billing.catalog.DefaultUnit;
 import org.killbill.billing.catalog.DefaultUsage;
+import org.killbill.billing.catalog.PriceListDefault;
 import org.killbill.billing.catalog.StandaloneCatalog;
 import org.killbill.billing.catalog.api.Block;
 import org.killbill.billing.catalog.api.CurrencyValueNull;
@@ -82,11 +85,7 @@ import org.killbill.billing.catalog.rules.DefaultCasePhase;
 import org.killbill.billing.catalog.rules.DefaultCasePriceList;
 import org.killbill.billing.catalog.rules.DefaultCaseStandardNaming;
 import org.killbill.billing.catalog.rules.DefaultPlanRules;
-
-import com.google.common.base.Function;
-import com.google.common.base.Predicate;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
+import org.killbill.commons.utils.collect.Iterables;
 
 public class StandaloneCatalogMapper {
 
@@ -110,7 +109,9 @@ public class StandaloneCatalogMapper {
         result.setEffectiveDate(pluginCatalog.getEffectiveDate().toDate());
         result.setProducts(toDefaultProducts(pluginCatalog.getProducts()));
         result.setPlans(toDefaultPlans(result, pluginCatalog.getPlans()));
-        result.setPriceLists(toDefaultPriceListSet(pluginCatalog.getDefaultPriceList(), pluginCatalog.getChildrenPriceList()));
+        // If plugin does not specify a default pricelist , we include it - see #2124
+        final PriceList defaultPriceList = pluginCatalog.getDefaultPriceList() == null ? new PriceListDefault() : toDefaultPriceList(pluginCatalog.getDefaultPriceList());
+        result.setPriceLists(toDefaultPriceListSet(defaultPriceList, pluginCatalog.getChildrenPriceList()));
         result.setSupportedCurrencies(toArray(pluginCatalog.getCurrencies()));
         result.setUnits(toDefaultUnits(pluginCatalog.getUnits()));
         result.setPlanRules(toDefaultPlanRules(pluginCatalog.getPlanRules()));
@@ -137,57 +138,27 @@ public class StandaloneCatalogMapper {
     }
 
     final DefaultCaseChangePlanPolicy[] toDefaultCaseChangePlanPolicies(final Iterable<CaseChangePlanPolicy> input) {
-        return toArrayWithTransform(input, new Function<CaseChangePlanPolicy, DefaultCaseChangePlanPolicy>() {
-            @Override
-            public DefaultCaseChangePlanPolicy apply(final CaseChangePlanPolicy input) {
-                return toDefaultCaseChangePlanPolicy(input);
-            }
-        });
+        return toArrayWithTransform(input, this::toDefaultCaseChangePlanPolicy);
     }
 
     final DefaultCaseChangePlanAlignment[] toDefaultCaseChangePlanAlignments(final Iterable<CaseChangePlanAlignment> input) {
-        return toArrayWithTransform(input, new Function<CaseChangePlanAlignment, DefaultCaseChangePlanAlignment>() {
-            @Override
-            public DefaultCaseChangePlanAlignment apply(final CaseChangePlanAlignment input) {
-                return toDefaultCaseChangePlanAlignment(input);
-            }
-        });
+        return toArrayWithTransform(input, this::toDefaultCaseChangePlanAlignment);
     }
 
     final DefaultCaseBillingAlignment[] toDefaultCaseBillingAlignments(final Iterable<CaseBillingAlignment> input) {
-        return toArrayWithTransform(input, new Function<CaseBillingAlignment, DefaultCaseBillingAlignment>() {
-            @Override
-            public DefaultCaseBillingAlignment apply(final CaseBillingAlignment input) {
-                return toDefaultCaseBillingAlignment(input);
-            }
-        });
+        return toArrayWithTransform(input, this::toDefaultCaseBillingAlignment);
     }
 
     final DefaultCaseCancelPolicy[] toDefaultCaseCancelPolicys(final Iterable<CaseCancelPolicy> input) {
-        return toArrayWithTransform(input, new Function<CaseCancelPolicy, DefaultCaseCancelPolicy>() {
-            @Override
-            public DefaultCaseCancelPolicy apply(final CaseCancelPolicy input) {
-                return toDefaultCaseCancelPolicy(input);
-            }
-        });
+        return toArrayWithTransform(input, this::toDefaultCaseCancelPolicy);
     }
 
     final DefaultCaseCreateAlignment[] toDefaultCaseCreateAlignments(final Iterable<CaseCreateAlignment> input) {
-        return toArrayWithTransform(input, new Function<CaseCreateAlignment, DefaultCaseCreateAlignment>() {
-            @Override
-            public DefaultCaseCreateAlignment apply(final CaseCreateAlignment input) {
-                return toCaseCreateAlignment(input);
-            }
-        });
+        return toArrayWithTransform(input, this::toCaseCreateAlignment);
     }
 
     final DefaultCasePriceList[] toDefaultCasePriceLists(final Iterable<CasePriceList> input) {
-        return toArrayWithTransform(input, new Function<CasePriceList, DefaultCasePriceList>() {
-            @Override
-            public DefaultCasePriceList apply(final CasePriceList input) {
-                return toDefaultCasePriceList(input);
-            }
-        });
+        return toArrayWithTransform(input, this::toDefaultCasePriceList);
     }
 
     final DefaultCasePriceList toDefaultCasePriceList(final CasePriceList input) {
@@ -258,27 +229,28 @@ public class StandaloneCatalogMapper {
 
     private Iterable<Product> toDefaultProducts(final Iterable<Product> input) {
         if (tmpDefaultProducts == null) {
-            final Map<String, Product> map = new HashMap<String, Product>();
-            for (final Product product : input) map.put(product.getName(), toDefaultProduct(product));
+            final Map<String, Product> map = new HashMap<>();
+            for (final Product product : input) {
+                map.put(product.getName(), toDefaultProduct(product));
+            }
             tmpDefaultProducts = map;
         }
         return tmpDefaultProducts.values();
     }
 
     private Collection<Product> toFilteredDefaultProduct(final Collection<Product> input) {
-        if (!input.iterator().hasNext()) {
+        if (input == null || !input.iterator().hasNext()) {
             return Collections.emptyList();
         }
-        final Iterable<String> inputProductNames = Iterables.transform(input, new Function<Product, String>() {
-            @Override
-            public String apply(final Product input) {
-                return input.getName();
-            }
-        });
+        final Iterable<String> inputProductNames = input.stream()
+                .map(Product::getName)
+                .collect(Collectors.toUnmodifiableList());
         final Collection<Product> filteredAndOrdered = new ArrayList<Product>(input.size());
         for (final String cur : inputProductNames) {
             final Product found = tmpDefaultProducts.get(cur);
-            if (found == null) throw new IllegalStateException("Failed to find product " + cur);
+            if (found == null) {
+                throw new IllegalStateException("Failed to find product " + cur);
+            }
             filteredAndOrdered.add(found);
         }
         return filteredAndOrdered;
@@ -286,8 +258,10 @@ public class StandaloneCatalogMapper {
 
     private Iterable<Plan> toDefaultPlans(final StaticCatalog staticCatalog, final Iterable<Plan> input) {
         if (tmpDefaultPlans == null) {
-            final Map<String, Plan> map = new HashMap<String, Plan>();
-            for (final Plan plan : input) map.put(plan.getName(), toDefaultPlan(staticCatalog, plan));
+            final Map<String, Plan> map = new HashMap<>();
+            for (final Plan plan : input) {
+                map.put(plan.getName(), toDefaultPlan(staticCatalog, plan));
+            }
             tmpDefaultPlans = map;
         }
         return tmpDefaultPlans.values();
@@ -298,12 +272,9 @@ public class StandaloneCatalogMapper {
         if (tmpDefaultPlans == null) {
             throw new IllegalStateException("Cannot filter on uninitialized plans");
         }
-        return Iterables.filter(tmpDefaultPlans.values(), new Predicate<Plan>() {
-            @Override
-            public boolean apply(final Plan input) {
-                return ((DefaultPlan)input).getPriceListName().equals(priceListName);
-            }
-        });
+        return tmpDefaultPlans.values().stream()
+                .filter(input -> ((DefaultPlan)input).getPriceListName().equals(priceListName))
+                .collect(Collectors.toUnmodifiableList());
     }
 
     private DefaultPriceListSet toDefaultPriceListSet(final PriceList defaultPriceList, final Iterable<PriceList> childrenPriceLists) {
@@ -317,39 +288,19 @@ public class StandaloneCatalogMapper {
         if (!input.iterator().hasNext()) {
             return new DefaultPlanPhase[0];
         }
-        return toArrayWithTransform(input, new Function<PlanPhase, DefaultPlanPhase>() {
-            @Override
-            public DefaultPlanPhase apply(final PlanPhase input) {
-                return toDefaultPlanPhase(input);
-            }
-        });
+        return toArrayWithTransform(input, this::toDefaultPlanPhase);
     }
 
     private DefaultPriceList[] toDefaultPriceLists(final Iterable<PriceList> input) {
-        return toArrayWithTransform(input, new Function<PriceList, DefaultPriceList>() {
-            @Override
-            public DefaultPriceList apply(final PriceList input) {
-                return toDefaultPriceList(input);
-            }
-        });
+        return toArrayWithTransform(input, this::toDefaultPriceList);
     }
 
     private DefaultPrice[] toDefaultPrices(final Iterable<Price> input) {
-        return toArrayWithTransform(input, new Function<Price, DefaultPrice>() {
-            @Override
-            public DefaultPrice apply(final Price input) {
-                return toDefaultPrice(input);
-            }
-        });
+        return toArrayWithTransform(input, this::toDefaultPrice);
     }
 
     private DefaultUnit[] toDefaultUnits(final Iterable<Unit> input) {
-        return toArrayWithTransform(input, new Function<Unit, DefaultUnit>() {
-            @Override
-            public DefaultUnit apply(final Unit inputTransform) {
-                return toDefaultUnit(inputTransform);
-            }
-        });
+        return toArrayWithTransform(input, this::toDefaultUnit);
     }
 
     private DefaultUnit toDefaultUnit(final Unit input) {
@@ -403,7 +354,9 @@ public class StandaloneCatalogMapper {
         result.setRecurringBillingMode(input.getRecurringBillingMode());
         result.setEffectiveDateForExistingSubscriptions(input.getEffectiveDateForExistingSubscriptions());
         result.setFinalPhase(toDefaultPlanPhase(input.getFinalPhase()));
-        result.setInitialPhases(toDefaultPlanPhases(ImmutableList.copyOf(input.getInitialPhases())));
+        if(input.getInitialPhases() != null && input.getInitialPhases().length != 0) {
+            result.setInitialPhases(toDefaultPlanPhases(List.of(input.getInitialPhases())));
+        }
         result.setPlansAllowedInBundle(input.getPlansAllowedInBundle());
         result.setProduct(toDefaultProduct(input.getProduct()));
         result.setPriceListName(input.getPriceList().getName());
@@ -417,6 +370,9 @@ public class StandaloneCatalogMapper {
         result.setFixed(toDefaultFixed(input.getFixed()));
         result.setPhaseType(input.getPhaseType());
         result.setRecurring(toDefaultRecurring(input.getRecurring()));
+        if (input.getPrettyName() != null) {
+            result.setPrettyName(input.getPrettyName());
+        }
         if (input.getUsages() != null && input.getUsages().length > 0) {
             result.setUsages(toDefaultUsages(Arrays.asList(input.getUsages())));
         }
@@ -452,9 +408,9 @@ public class StandaloneCatalogMapper {
 
     private DefaultInternationalPrice toDefaultInternationalPrice(final InternationalPrice input) {
         DefaultInternationalPrice result = null;
-        if (input != null) {
+        if (input != null && input.getPrices() != null) {
             result = new DefaultInternationalPrice();
-            result.setPrices(toDefaultPrices(ImmutableList.copyOf(input.getPrices())));
+            result.setPrices(toDefaultPrices(List.of(input.getPrices())));
         }
         return result;
     }
@@ -471,13 +427,7 @@ public class StandaloneCatalogMapper {
     }
 
     private DefaultUsage[] toDefaultUsages(final Iterable<Usage> input) {
-        return toArrayWithTransform(input, new Function<Usage, DefaultUsage>() {
-            @Nullable
-            @Override
-            public DefaultUsage apply(@Nullable final Usage input) {
-                return toDefaultUsage(input);
-            }
-        });
+        return toArrayWithTransform(input, this::toDefaultUsage);
     }
 
     private DefaultUsage toDefaultUsage(final Usage input) {
@@ -487,6 +437,9 @@ public class StandaloneCatalogMapper {
         result.setBillingPeriod(input.getBillingPeriod());
         result.setUsageType(input.getUsageType());
         result.setTierBlockPolicy(input.getTierBlockPolicy());
+        if (input.getPrettyName() != null) {
+            result.setPrettyName(input.getPrettyName());
+        }
         if (input.getLimits() != null && input.getLimits().length > 0) {
             result.setLimits(toDefaultLimits(Arrays.asList(input.getLimits())));
         }
@@ -502,12 +455,7 @@ public class StandaloneCatalogMapper {
     }
 
     private DefaultLimit[] toDefaultLimits(final Iterable<Limit> input) {
-        return toArrayWithTransform(input, new Function<Limit, DefaultLimit>() {
-            @Override
-            public DefaultLimit apply(final Limit input) {
-                return toDefaultLimit(input);
-            }
-        });
+        return toArrayWithTransform(input, this::toDefaultLimit);
     }
 
     private DefaultLimit toDefaultLimit(final Limit input) {
@@ -522,13 +470,7 @@ public class StandaloneCatalogMapper {
     }
 
     private DefaultBlock[] toDefaultBlocks(final Iterable<Block> input) {
-        return toArrayWithTransform(input, new Function<Block, DefaultBlock>() {
-            @Nullable
-            @Override
-            public DefaultBlock apply(@Nullable final Block input) {
-                return toDefaultBlock(input);
-            }
-        });
+        return toArrayWithTransform(input, this::toDefaultBlock);
     }
 
     private DefaultBlock toDefaultBlock(final Block input) {
@@ -544,13 +486,7 @@ public class StandaloneCatalogMapper {
     }
 
     private DefaultTier[] toDefaultTiers(final Iterable<Tier> input) {
-        return toArrayWithTransform(input, new Function<Tier, DefaultTier>() {
-            @Nullable
-            @Override
-            public DefaultTier apply(@Nullable final Tier input) {
-                return toDefaultTier(input);
-            }
-        });
+        return toArrayWithTransform(input, this::toDefaultTier);
     }
 
     private DefaultTier toDefaultTier(final Tier input) {
@@ -570,13 +506,7 @@ public class StandaloneCatalogMapper {
     }
 
     private DefaultTieredBlock[] toDefaultTieredBlocks(Iterable<TieredBlock> input) {
-        return toArrayWithTransform(input, new Function<TieredBlock, DefaultTieredBlock>() {
-            @Nullable
-            @Override
-            public DefaultTieredBlock apply(@Nullable final TieredBlock input) {
-                return toDefaultTieredBlock(input);
-            }
-        });
+        return toArrayWithTransform(input, this::toDefaultTieredBlock);
     }
 
     private DefaultTieredBlock toDefaultTieredBlock(TieredBlock input) {
@@ -596,7 +526,8 @@ public class StandaloneCatalogMapper {
         if (input == null || !input.iterator().hasNext()) {
             return null;
         }
-        final Iterable<C> tmp = Iterables.transform(input, transformer);
+
+        final Iterable<C> tmp = Iterables.toStream(input).map(transformer).collect(Collectors.toUnmodifiableList());
         return toArray(tmp);
     }
 
@@ -606,7 +537,7 @@ public class StandaloneCatalogMapper {
         }
         final C[] foo = (C[]) java.lang.reflect.Array
                 .newInstance(input.iterator().next().getClass(), 1);
-        return ImmutableList.<C>copyOf(input).toArray(foo);
+        return Iterables.toUnmodifiableList(input).toArray(foo);
     }
 
 }

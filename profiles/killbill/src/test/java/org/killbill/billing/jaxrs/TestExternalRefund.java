@@ -18,10 +18,12 @@
 package org.killbill.billing.jaxrs;
 
 import java.math.BigDecimal;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
-import org.joda.time.DateTime;
 import org.killbill.billing.client.KillBillClientException;
 import org.killbill.billing.client.model.InvoicePayments;
 import org.killbill.billing.client.model.Invoices;
@@ -39,8 +41,6 @@ import org.killbill.billing.payment.api.TransactionType;
 import org.killbill.billing.util.api.AuditLevel;
 import org.testng.annotations.Test;
 
-import com.google.common.collect.ImmutableList;
-
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
@@ -49,14 +49,14 @@ public class TestExternalRefund extends TestJaxrsBase {
 
     @Test(groups = "slow", description = "#255 - Scenario 0 - Can refund an automatic payment. This is a test to validate the correct behaviour.")
     public void testAutomaticPaymentAndRefund() throws Exception {
-        final DateTime initialDate = new DateTime(2012, 4, 25, 0, 3, 42, 0);
-        clock.setDeltaFromReality(initialDate.getMillis() - clock.getUTCNow().getMillis());
+        final ZonedDateTime initialDate = ZonedDateTime.of(2012, 4, 25, 0, 3, 42, 0, ZoneId.systemDefault());
+        clock.setDeltaFromReality(initialDate.toInstant().toEpochMilli() - clock.getUTCNow().getMillis());
 
         final Account accountJson = createAccountWithPMBundleAndSubscriptionAndWaitForFirstInvoice();
         final Payments paymentsForAccount = accountApi.getPaymentsForAccount(accountJson.getAccountId(), NULL_PLUGIN_PROPERTIES, requestOptions);
         final Payment payment = paymentsForAccount.get(paymentsForAccount.size() - 1);
 
-        Invoices invoices = accountApi.getInvoicesForAccount(accountJson.getAccountId(), null, null, true, false, false, null, AuditLevel.NONE, requestOptions);
+        Invoices invoices = accountApi.getInvoicesForAccount(accountJson.getAccountId(), null, null, true, false, false, true, null, AuditLevel.NONE, requestOptions);
 
         // regular refund
         final InvoicePaymentTransaction invoicePaymentTransactionRequest = new InvoicePaymentTransaction();
@@ -73,14 +73,14 @@ public class TestExternalRefund extends TestJaxrsBase {
 
     @Test(groups = "slow", description = "#255 - Scenario 0 - Can refund an automatic payment over item adjustments. This is a test to validate the correct behaviour.")
     public void testAutomaticPaymentAndRefundWithAdjustments() throws Exception {
-        final DateTime initialDate = new DateTime(2012, 4, 25, 0, 3, 42, 0);
-        clock.setDeltaFromReality(initialDate.getMillis() - clock.getUTCNow().getMillis());
+        final ZonedDateTime initialDate = ZonedDateTime.of(2012, 4, 25, 0, 3, 42, 0, ZoneId.systemDefault());
+        clock.setDeltaFromReality(initialDate.toInstant().toEpochMilli() - clock.getUTCNow().getMillis());
 
         final Account accountJson = createAccountWithPMBundleAndSubscriptionAndWaitForFirstInvoice();
         final Payments paymentsForAccount = accountApi.getPaymentsForAccount(accountJson.getAccountId(), NULL_PLUGIN_PROPERTIES, requestOptions);
         final Payment payment = paymentsForAccount.get(paymentsForAccount.size() - 1);
 
-        Invoices invoices = accountApi.getInvoicesForAccount(accountJson.getAccountId(), null, null, true, false, false, null, AuditLevel.NONE, requestOptions);
+        Invoices invoices = accountApi.getInvoicesForAccount(accountJson.getAccountId(), null, null, true, false, false, true, null, AuditLevel.NONE, requestOptions);
         final List<InvoiceItem> itemsToBeAdjusted = invoices.get(1).getItems();
 
         // regular refund
@@ -101,12 +101,12 @@ public class TestExternalRefund extends TestJaxrsBase {
 
     @Test(groups = "slow", description = "#255 - Scenario 1 - Can refund a manual payment though an external refund")
     public void testManualPaymentAndExternalRefund() throws Exception {
-        final DateTime initialDate = new DateTime(2012, 4, 25, 0, 3, 42, 0);
-        clock.setDeltaFromReality(initialDate.getMillis() - clock.getUTCNow().getMillis());
+        final ZonedDateTime initialDate = ZonedDateTime.of(2012, 4, 25, 0, 3, 42, 0, ZoneId.systemDefault());
+        clock.setDeltaFromReality(initialDate.toInstant().toEpochMilli() - clock.getUTCNow().getMillis());
 
         final Account accountJson = createAccountWithExternalPMBundleAndSubscriptionAndManualPayTagAndWaitForFirstInvoice();
 
-        final Invoices invoicesForAccount = accountApi.getInvoicesForAccount(accountJson.getAccountId(), null, null, null, requestOptions);
+        final Invoices invoicesForAccount = accountApi.getInvoicesForAccount(accountJson.getAccountId(), null, null, false, false, false, true, null, AuditLevel.NONE, requestOptions);
         final Invoice unpaidInvoice = invoicesForAccount.get(1);
         assertEquals(unpaidInvoice.getBalance().compareTo(BigDecimal.valueOf(249.95)), 0);
 
@@ -118,7 +118,7 @@ public class TestExternalRefund extends TestJaxrsBase {
         invoicePaymentRequest.setAccountId(accountJson.getAccountId());
         invoicePaymentRequest.setCurrency(unpaidInvoice.getCurrency());
         invoicePaymentRequest.setPurchasedAmount(unpaidInvoice.getAmount());
-        final InvoicePayment invoicePayment = invoiceApi.createInstantPayment(unpaidInvoice.getInvoiceId(), invoicePaymentRequest, true, ImmutableList.of(), NULL_PLUGIN_PROPERTIES, requestOptions);
+        final InvoicePayment invoicePayment = invoiceApi.createInstantPayment(unpaidInvoice.getInvoiceId(), invoicePaymentRequest, true, Collections.emptyList(), NULL_PLUGIN_PROPERTIES, requestOptions);
         assertEquals(invoicePayment.getPurchasedAmount().compareTo(BigDecimal.valueOf(249.95)), 0);
         assertEquals(invoicePayment.getRefundedAmount().compareTo(BigDecimal.ZERO), 0);
 
@@ -135,12 +135,12 @@ public class TestExternalRefund extends TestJaxrsBase {
 
     @Test(groups = "slow", description = "#255 - Scenario 1 - Can refund a manual payment though an external refund over item adjustments")
     public void testManualPaymentAndExternalRefundWithAdjustments() throws Exception {
-        final DateTime initialDate = new DateTime(2012, 4, 25, 0, 3, 42, 0);
-        clock.setDeltaFromReality(initialDate.getMillis() - clock.getUTCNow().getMillis());
+        final ZonedDateTime initialDate = ZonedDateTime.of(2012, 4, 25, 0, 3, 42, 0, ZoneId.systemDefault());
+        clock.setDeltaFromReality(initialDate.toInstant().toEpochMilli() - clock.getUTCNow().getMillis());
 
         final Account accountJson = createAccountWithExternalPMBundleAndSubscriptionAndManualPayTagAndWaitForFirstInvoice();
 
-        final Invoices invoicesForAccount = accountApi.getInvoicesForAccount(accountJson.getAccountId(), null, null, false, false, false, null, AuditLevel.NONE, requestOptions);
+        final Invoices invoicesForAccount = accountApi.getInvoicesForAccount(accountJson.getAccountId(), null, null, false, false, false, true, null, AuditLevel.NONE, requestOptions);
         final Invoice unpaidInvoice = invoicesForAccount.get(1);
         assertEquals(unpaidInvoice.getBalance().compareTo(BigDecimal.valueOf(249.95)), 0);
 
@@ -152,7 +152,7 @@ public class TestExternalRefund extends TestJaxrsBase {
         invoicePaymentRequest.setAccountId(accountJson.getAccountId());
         invoicePaymentRequest.setCurrency(unpaidInvoice.getCurrency());
         invoicePaymentRequest.setPurchasedAmount(unpaidInvoice.getAmount());
-        final InvoicePayment invoicePayment = invoiceApi.createInstantPayment(unpaidInvoice.getInvoiceId(), invoicePaymentRequest, true, ImmutableList.of(), NULL_PLUGIN_PROPERTIES, requestOptions);
+        final InvoicePayment invoicePayment = invoiceApi.createInstantPayment(unpaidInvoice.getInvoiceId(), invoicePaymentRequest, true, Collections.emptyList(), NULL_PLUGIN_PROPERTIES, requestOptions);
         assertEquals(invoicePayment.getPurchasedAmount().compareTo(BigDecimal.valueOf(249.95)), 0);
         assertEquals(invoicePayment.getRefundedAmount().compareTo(BigDecimal.ZERO), 0);
 
@@ -171,8 +171,8 @@ public class TestExternalRefund extends TestJaxrsBase {
 
     @Test(groups = "slow", description = "#255 - Scenario 2a - Can refund an automatic payment though an external refund")
     public void testAutomaticPaymentAndExternalRefund() throws Exception {
-        final DateTime initialDate = new DateTime(2012, 4, 25, 0, 3, 42, 0);
-        clock.setDeltaFromReality(initialDate.getMillis() - clock.getUTCNow().getMillis());
+        final ZonedDateTime initialDate = ZonedDateTime.of(2012, 4, 25, 0, 3, 42, 0, ZoneId.systemDefault());
+        clock.setDeltaFromReality(initialDate.toInstant().toEpochMilli() - clock.getUTCNow().getMillis());
 
         final Account accountJson = createAccountWithPMBundleAndSubscriptionAndWaitForFirstInvoice();
         // delete PM
@@ -196,8 +196,8 @@ public class TestExternalRefund extends TestJaxrsBase {
 
     @Test(groups = "slow", description = "#255 - Scenario 2a - Can refund an automatic payment though an external refund over item adjustments")
     public void testAutomaticPaymentAndExternalRefundWithAdjustments() throws Exception {
-        final DateTime initialDate = new DateTime(2012, 4, 25, 0, 3, 42, 0);
-        clock.setDeltaFromReality(initialDate.getMillis() - clock.getUTCNow().getMillis());
+        final ZonedDateTime initialDate = ZonedDateTime.of(2012, 4, 25, 0, 3, 42, 0, ZoneId.systemDefault());
+        clock.setDeltaFromReality(initialDate.toInstant().toEpochMilli() - clock.getUTCNow().getMillis());
 
         final Account accountJson = createAccountWithPMBundleAndSubscriptionAndWaitForFirstInvoice();
         // delete PM
@@ -206,7 +206,7 @@ public class TestExternalRefund extends TestJaxrsBase {
         final Payments paymentsForAccount = accountApi.getPaymentsForAccount(accountJson.getAccountId(), NULL_PLUGIN_PROPERTIES, requestOptions);
         final Payment payment = paymentsForAccount.get(paymentsForAccount.size() - 1);
 
-        final Invoices invoices = accountApi.getInvoicesForAccount(accountJson.getAccountId(), null, null, true, false, false, null, AuditLevel.NONE, requestOptions);
+        final Invoices invoices = accountApi.getInvoicesForAccount(accountJson.getAccountId(), null, null, true, false, false, true, null, AuditLevel.NONE, requestOptions);
         final List<InvoiceItem> itemsToBeAdjusted = invoices.get(1).getItems();
 
         // external refund
@@ -227,8 +227,8 @@ public class TestExternalRefund extends TestJaxrsBase {
 
     @Test(groups = "slow", description = "#255 - Scenario 2b - Can refund an automatic payment though another existing payment method")
     public void testAutomaticPaymentAndExternalRefundWithDifferentPM() throws Exception {
-        final DateTime initialDate = new DateTime(2012, 4, 25, 0, 3, 42, 0);
-        clock.setDeltaFromReality(initialDate.getMillis() - clock.getUTCNow().getMillis());
+        final ZonedDateTime initialDate = ZonedDateTime.of(2012, 4, 25, 0, 3, 42, 0, ZoneId.systemDefault());
+        clock.setDeltaFromReality(initialDate.toInstant().toEpochMilli() - clock.getUTCNow().getMillis());
 
         final Account accountJson = createAccountWithPMBundleAndSubscriptionAndWaitForFirstInvoice();
 
@@ -243,7 +243,7 @@ public class TestExternalRefund extends TestJaxrsBase {
         final Payments paymentsForAccount = accountApi.getPaymentsForAccount(accountJson.getAccountId(), NULL_PLUGIN_PROPERTIES, requestOptions);
         final Payment payment = paymentsForAccount.get(paymentsForAccount.size() - 1);
 
-        final Invoices invoices = accountApi.getInvoicesForAccount(accountJson.getAccountId(), null, null, true, false, false, null, AuditLevel.NONE, requestOptions);
+        final Invoices invoices = accountApi.getInvoicesForAccount(accountJson.getAccountId(), null, null, true, false, false, true, null, AuditLevel.NONE, requestOptions);
         final List<InvoiceItem> itemsToBeAdjusted = invoices.get(1).getItems();
 
         // external refund
@@ -265,7 +265,7 @@ public class TestExternalRefund extends TestJaxrsBase {
 
     private void assertRefundInvoiceAdjustments(final UUID accountId) throws KillBillClientException {
         final Invoices invoices;
-        invoices = accountApi.getInvoicesForAccount(accountId, null, null, true, false, false, null, AuditLevel.NONE, requestOptions);
+        invoices = accountApi.getInvoicesForAccount(accountId, null, null, true, false, false, true, null, AuditLevel.NONE, requestOptions);
         final Invoice invoiceWithRefund = invoices.get(1);
         assertEquals(invoiceWithRefund.getAmount().compareTo(BigDecimal.ZERO), 0);
         assertEquals(invoiceWithRefund.getRefundAdj().compareTo(BigDecimal.valueOf(249.95).negate()), 0);
@@ -277,7 +277,7 @@ public class TestExternalRefund extends TestJaxrsBase {
     }
 
     private void assertRefundInvoiceNoAdjustments(final UUID accountId) throws KillBillClientException {
-        final Invoices invoices = accountApi.getInvoicesForAccount(accountId, null, null, true, false, false, null, AuditLevel.NONE, requestOptions);
+        final Invoices invoices = accountApi.getInvoicesForAccount(accountId, null, null, true, false, false, true, null, AuditLevel.NONE, requestOptions);
         final Invoice invoiceWithRefund = invoices.get(1);
         assertEquals(invoiceWithRefund.getAmount().compareTo(BigDecimal.valueOf(249.95)), 0);
         assertEquals(invoiceWithRefund.getRefundAdj().compareTo(BigDecimal.valueOf(249.95).negate()), 0);

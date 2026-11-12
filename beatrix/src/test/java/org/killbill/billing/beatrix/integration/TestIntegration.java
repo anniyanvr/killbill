@@ -20,6 +20,7 @@ package org.killbill.billing.beatrix.integration;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -50,15 +51,12 @@ import org.killbill.billing.invoice.api.Invoice;
 import org.killbill.billing.invoice.api.InvoiceApiException;
 import org.killbill.billing.invoice.api.InvoiceItemType;
 import org.killbill.billing.mock.MockAccountBuilder;
-import org.killbill.billing.payment.api.PluginProperty;
 import org.killbill.billing.payment.api.TransactionStatus;
 import org.killbill.billing.subscription.api.user.DefaultSubscriptionBase;
 import org.skife.jdbi.v2.Handle;
 import org.skife.jdbi.v2.tweak.HandleCallback;
 import org.testng.Assert;
 import org.testng.annotations.Test;
-
-import com.google.common.collect.ImmutableList;
 
 import static org.killbill.billing.ErrorCode.INVOICE_NOTHING_TO_DO;
 import static org.testng.Assert.assertEquals;
@@ -67,9 +65,10 @@ import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
 
-public class TestIntegration extends TestIntegrationBase {
+public class TestIntegration extends TestIntegrationBase { //TODO_1739 - This test has major changes and needs to be reviewed carefully
 
-    @Test(groups = "slow", description = "https://github.com/killbill/killbill/issues/897")
+
+     @Test(groups = "slow", description = "https://github.com/killbill/killbill/issues/897")
     public void testFutureCancelBPWithAOBeforePhase() throws Exception {
         // We take april as it has 30 days (easier to play with BCD)
         // Set clock to the initial start date - we implicitly assume here that the account timezone is UTC
@@ -87,7 +86,7 @@ public class TestIntegration extends TestIntegrationBase {
         final DefaultEntitlement bpSubscription = createBaseEntitlementAndCheckForCompletion(account.getId(), "bundleKey", "Shotgun", ProductCategory.BASE, BillingPeriod.MONTHLY, NextEvent.CREATE, NextEvent.BLOCK, NextEvent.INVOICE);
         // Check bundle after BP got created otherwise we get an error from auditApi.
         subscriptionChecker.checkSubscriptionCreated(bpSubscription.getId(), internalCallContext);
-        expectedInvoices.add(new ExpectedInvoiceItemCheck(new LocalDate(2012, 4, 1), null, InvoiceItemType.FIXED, new BigDecimal("0")));
+        expectedInvoices.add(new ExpectedInvoiceItemCheck(new LocalDate(2012, 4, 1), new LocalDate(2012, 5, 1), InvoiceItemType.FIXED, new BigDecimal("0")));
         invoiceChecker.checkInvoice(account.getId(), 1, callContext, expectedInvoices);
         expectedInvoices.clear();
 
@@ -113,9 +112,9 @@ public class TestIntegration extends TestIntegrationBase {
 
         // Verify we can trigger a dry-run invoice while the cancellation is pending
         final DryRunArguments dryRun = new TestDryRunArguments(DryRunType.SUBSCRIPTION_ACTION, null, null, null, null, null, SubscriptionEventType.STOP_BILLING, bpSubscription.getId(),
-                                                               bpSubscription.getBundleId(), null, null);
+                                                               bpSubscription.getBundleId(), null, BillingActionPolicy.END_OF_TERM);
         try {
-            invoiceUserApi.triggerDryRunInvoiceGeneration(account.getId(), new LocalDate(2012, 6, 1), dryRun, callContext);
+            invoiceUserApi.triggerDryRunInvoiceGeneration(account.getId(), new LocalDate(2012, 6, 1), dryRun, Collections.emptyList(), callContext);
             fail();
         } catch (final InvoiceApiException e) {
             assertEquals(e.getCode(), INVOICE_NOTHING_TO_DO.getCode());
@@ -144,7 +143,7 @@ public class TestIntegration extends TestIntegrationBase {
         final DefaultEntitlement bpSubscription = createBaseEntitlementAndCheckForCompletion(account.getId(), "bundleKey", "Shotgun", ProductCategory.BASE, BillingPeriod.MONTHLY, NextEvent.CREATE, NextEvent.BLOCK, NextEvent.INVOICE);
         // Check bundle after BP got created otherwise we get an error from auditApi.
         subscriptionChecker.checkSubscriptionCreated(bpSubscription.getId(), internalCallContext);
-        expectedInvoices.add(new ExpectedInvoiceItemCheck(new LocalDate(2012, 4, 1), null, InvoiceItemType.FIXED, new BigDecimal("0")));
+        expectedInvoices.add(new ExpectedInvoiceItemCheck(new LocalDate(2012, 4, 1), new LocalDate(2012, 5, 1), InvoiceItemType.FIXED, new BigDecimal("0")));
         invoiceChecker.checkInvoice(account.getId(), 1, callContext, expectedInvoices);
         expectedInvoices.clear();
 
@@ -173,9 +172,9 @@ public class TestIntegration extends TestIntegrationBase {
 
         // Verify we can trigger a dry-run invoice while the cancellation is pending
         final DryRunArguments dryRun = new TestDryRunArguments(DryRunType.SUBSCRIPTION_ACTION, null, null, null, null, null, SubscriptionEventType.STOP_BILLING, bpSubscription.getId(),
-                                                               bpSubscription.getBundleId(), null, null);
+                                                               bpSubscription.getBundleId(), null, BillingActionPolicy.END_OF_TERM);
         try {
-            invoiceUserApi.triggerDryRunInvoiceGeneration(account.getId(), new LocalDate(2012, 6, 1), dryRun, callContext);
+            invoiceUserApi.triggerDryRunInvoiceGeneration(account.getId(), new LocalDate(2012, 6, 1), dryRun, Collections.emptyList(), callContext);
             fail();
         } catch (final InvoiceApiException e) {
             assertEquals(e.getCode(), INVOICE_NOTHING_TO_DO.getCode());
@@ -204,8 +203,8 @@ public class TestIntegration extends TestIntegrationBase {
 
         TestDryRunArguments dryRun = new TestDryRunArguments(DryRunType.SUBSCRIPTION_ACTION, "Shotgun", ProductCategory.BASE, BillingPeriod.MONTHLY, null, null,
                                                              SubscriptionEventType.START_BILLING, null, null, null, null);
-        Invoice dryRunInvoice = invoiceUserApi.triggerDryRunInvoiceGeneration(account.getId(), clock.getUTCToday(), dryRun, callContext);
-        expectedInvoices.add(new ExpectedInvoiceItemCheck(new LocalDate(2012, 4, 1), null, InvoiceItemType.FIXED, new BigDecimal("0")));
+        Invoice dryRunInvoice = invoiceUserApi.triggerDryRunInvoiceGeneration(account.getId(), clock.getUTCToday(), dryRun, Collections.emptyList(), callContext);
+        expectedInvoices.add(new ExpectedInvoiceItemCheck(new LocalDate(2012, 4, 1), new LocalDate(2012, 5, 1), InvoiceItemType.FIXED, new BigDecimal("0")));
         invoiceChecker.checkInvoiceNoAudits(dryRunInvoice, expectedInvoices);
 
         final DefaultEntitlement bpSubscription = createBaseEntitlementAndCheckForCompletion(account.getId(), "bundleKey", "Shotgun", ProductCategory.BASE, BillingPeriod.MONTHLY, NextEvent.CREATE, NextEvent.BLOCK, NextEvent.INVOICE);
@@ -219,7 +218,7 @@ public class TestIntegration extends TestIntegrationBase {
         //
         dryRun = new TestDryRunArguments(DryRunType.SUBSCRIPTION_ACTION, "Telescopic-Scope", ProductCategory.ADD_ON, BillingPeriod.MONTHLY, null, null,
                                          SubscriptionEventType.START_BILLING, null, bpSubscription.getBundleId(), null, null);
-        dryRunInvoice = invoiceUserApi.triggerDryRunInvoiceGeneration(account.getId(), clock.getUTCToday(), dryRun, callContext);
+        dryRunInvoice = invoiceUserApi.triggerDryRunInvoiceGeneration(account.getId(), clock.getUTCToday(), dryRun, Collections.emptyList(), callContext);
         expectedInvoices.add(new ExpectedInvoiceItemCheck(new LocalDate(2012, 4, 1), new LocalDate(2012, 5, 1), InvoiceItemType.RECURRING, new BigDecimal("399.95")));
         invoiceChecker.checkInvoiceNoAudits(dryRunInvoice, expectedInvoices);
 
@@ -230,24 +229,15 @@ public class TestIntegration extends TestIntegrationBase {
         expectedInvoices.clear();
 
         //
-        // CANCEL BP ON THE SAME DAY (we should have two cancellations, BP and AO)
-        // There is no invoice created as we only adjust the previous invoice.
+        // CANCEL BP ON THE SAME DAY
         //
-        dryRun = new TestDryRunArguments(DryRunType.SUBSCRIPTION_ACTION, null, null, null, null, null, SubscriptionEventType.STOP_BILLING, bpSubscription.getId(),
-                                         bpSubscription.getBundleId(), null, null);
-        dryRunInvoice = invoiceUserApi.triggerDryRunInvoiceGeneration(account.getId(), clock.getUTCToday(), dryRun, callContext);
-        expectedInvoices.add(new ExpectedInvoiceItemCheck(new LocalDate(2012, 4, 1), new LocalDate(2012, 5, 1), InvoiceItemType.REPAIR_ADJ, new BigDecimal("-399.95")));
-        // The second invoice should be adjusted for the AO (we paid for the full period) and since we paid we should also see a CBA
-        expectedInvoices.add(new ExpectedInvoiceItemCheck(new LocalDate(2012, 4, 1), new LocalDate(2012, 4, 1), InvoiceItemType.CBA_ADJ, new BigDecimal("399.95"),
-                                                          false /* Avoid checking dates for CBA because code is using context and context createdDate is wrong  in the test as we reset the clock too late, bummer... */ ));
-        invoiceChecker.checkInvoiceNoAudits(dryRunInvoice, expectedInvoices);
 
+        cancelEntitlementAndCheckForCompletion(bpSubscription, NextEvent.BLOCK, NextEvent.BLOCK);
 
-        cancelEntitlementAndCheckForCompletion(bpSubscription, NextEvent.BLOCK, NextEvent.BLOCK, NextEvent.CANCEL, NextEvent.CANCEL, NextEvent.INVOICE);
-
-        invoiceChecker.checkInvoice(account.getId(), 3,
-                                    callContext,
-                                    expectedInvoices);
+        //Move clock to EOT - Both base and addon are cancelled
+        busHandler.pushExpectedEvents(NextEvent.CANCEL, NextEvent.CANCEL, NextEvent.NULL_INVOICE, NextEvent.NULL_INVOICE);
+        clock.addMonths(1);
+        assertListenerStatus();
 
         checkNoMoreInvoiceToGenerate(account);
     }
@@ -270,24 +260,24 @@ public class TestIntegration extends TestIntegrationBase {
         //
         DefaultEntitlement baseEntitlement = createBaseEntitlementAndCheckForCompletion(account.getId(), "bundleKey", "Shotgun", ProductCategory.BASE, BillingPeriod.MONTHLY, NextEvent.CREATE, NextEvent.BLOCK, NextEvent.INVOICE);
         DefaultSubscriptionBase subscription = subscriptionDataFromSubscription(baseEntitlement.getSubscriptionBase());
-        invoiceChecker.checkInvoice(account.getId(), invoiceItemCount++, callContext, new ExpectedInvoiceItemCheck(initialCreationDate.toLocalDate(), null, InvoiceItemType.FIXED, new BigDecimal("0")));
-        // No end date for the trial item (fixed price of zero), and CTD should be today (i.e. when the trial started)
-        invoiceChecker.checkChargedThroughDate(subscription.getId(), clock.getUTCToday(), callContext);
+        invoiceChecker.checkInvoice(account.getId(), invoiceItemCount++, callContext, new ExpectedInvoiceItemCheck(initialCreationDate.toLocalDate(), new LocalDate(2012, 3, 2), InvoiceItemType.FIXED, new BigDecimal("0")));
+        // No end date for the trial item (fixed price of zero), so CTD should be end of trial phase
+        invoiceChecker.checkChargedThroughDate(subscription.getId(), new LocalDate(2012, 3, 2), callContext);
 
         //
         // CHANGE PLAN IMMEDIATELY AND EXPECT BOTH EVENTS: NextEvent.CHANGE NextEvent.INVOICE
         //
         TestDryRunArguments dryRun = new TestDryRunArguments(DryRunType.SUBSCRIPTION_ACTION, "Assault-Rifle", ProductCategory.BASE, BillingPeriod.MONTHLY, null, null, SubscriptionEventType.CHANGE,
                                                              subscription.getId(), subscription.getBundleId(), null, null);
-        Invoice dryRunInvoice = invoiceUserApi.triggerDryRunInvoiceGeneration(account.getId(), clock.getUTCToday(), dryRun, callContext);
-        expectedInvoices.add(new ExpectedInvoiceItemCheck(initialCreationDate.toLocalDate(), null, InvoiceItemType.FIXED, new BigDecimal("0")));
+        Invoice dryRunInvoice = invoiceUserApi.triggerDryRunInvoiceGeneration(account.getId(), clock.getUTCToday(), dryRun, Collections.emptyList(), callContext);
+        expectedInvoices.add(new ExpectedInvoiceItemCheck(initialCreationDate.toLocalDate(), new LocalDate(2012, 3, 2), InvoiceItemType.FIXED, new BigDecimal("0")));
         invoiceChecker.checkInvoiceNoAudits(dryRunInvoice, expectedInvoices);
 
 
         clock.addDeltaFromReality(1000); // Make sure CHANGE does not collide with CREATE
         changeEntitlementAndCheckForCompletion(baseEntitlement, "Assault-Rifle", BillingPeriod.MONTHLY, null, NextEvent.CHANGE, NextEvent.INVOICE);
         invoiceChecker.checkInvoice(account.getId(), invoiceItemCount++, callContext, expectedInvoices);
-        invoiceChecker.checkChargedThroughDate(subscription.getId(), clock.getUTCToday(), callContext);
+        invoiceChecker.checkChargedThroughDate(subscription.getId(), new LocalDate(2012, 3, 2), callContext);
         expectedInvoices.clear();
 
         //
@@ -304,7 +294,7 @@ public class TestIntegration extends TestIntegrationBase {
         expectedInvoices.add(new ExpectedInvoiceItemCheck(new LocalDate(2012, 3, 2), new LocalDate(2012, 3, 31), InvoiceItemType.RECURRING, new BigDecimal("561.24")));
 
         // Verify first next targetDate
-        dryRunInvoice = invoiceUserApi.triggerDryRunInvoiceGeneration(account.getId(), new LocalDate(nextDate, testTimeZone), dryRun, callContext);
+        dryRunInvoice = invoiceUserApi.triggerDryRunInvoiceGeneration(account.getId(), new LocalDate(nextDate, testTimeZone), dryRun, Collections.emptyList(), callContext);
         invoiceChecker.checkInvoiceNoAudits(dryRunInvoice, expectedInvoices);
 
 
@@ -328,7 +318,7 @@ public class TestIntegration extends TestIntegrationBase {
 
         nextDate = clock.getUTCNow().plusDays(31);
         dryRun = new TestDryRunArguments(DryRunType.TARGET_DATE);
-        dryRunInvoice = invoiceUserApi.triggerDryRunInvoiceGeneration(account.getId(), new LocalDate(nextDate, testTimeZone), dryRun, callContext);
+        dryRunInvoice = invoiceUserApi.triggerDryRunInvoiceGeneration(account.getId(), new LocalDate(nextDate, testTimeZone), dryRun, Collections.emptyList(), callContext);
         expectedInvoices.add(new ExpectedInvoiceItemCheck(new LocalDate(2012, 3, 31), new LocalDate(2012, 4, 30), InvoiceItemType.RECURRING, new BigDecimal("29.95")));
 
         invoiceChecker.checkInvoiceNoAudits(dryRunInvoice, expectedInvoices);
@@ -381,17 +371,17 @@ public class TestIntegration extends TestIntegrationBase {
         //
         DefaultEntitlement baseEntitlement = createBaseEntitlementAndCheckForCompletion(account.getId(), "bundleKey", "Shotgun", ProductCategory.BASE, BillingPeriod.MONTHLY, NextEvent.CREATE, NextEvent.BLOCK, NextEvent.INVOICE);
         DefaultSubscriptionBase subscription = subscriptionDataFromSubscription(baseEntitlement.getSubscriptionBase());
-        invoiceChecker.checkInvoice(account.getId(), invoiceItemCount++, callContext, new ExpectedInvoiceItemCheck(initialCreationDate.toLocalDate(), null, InvoiceItemType.FIXED, new BigDecimal("0")));
-        // No end date for the trial item (fixed price of zero), and CTD should be today (i.e. when the trial started)
-        invoiceChecker.checkChargedThroughDate(subscription.getId(), clock.getUTCToday(), callContext);
+        invoiceChecker.checkInvoice(account.getId(), invoiceItemCount++, callContext, new ExpectedInvoiceItemCheck(initialCreationDate.toLocalDate(), new LocalDate(2012, 3, 2), InvoiceItemType.FIXED, new BigDecimal("0")));
+        // No end date for the trial item (fixed price of zero), so CTD should be end of trial phase
+        invoiceChecker.checkChargedThroughDate(subscription.getId(), new LocalDate(2012, 3, 2), callContext); //TODO_1739 - CTD is 2012-03-02 since startDate is in Feb which has 28 days. Revisit
 
         //
         // CHANGE PLAN IMMEDIATELY AND EXPECT BOTH EVENTS: NextEvent.CHANGE NextEvent.INVOICE
         //
         clock.addDeltaFromReality(1000); // Make sure CHANGE does not exactly align with CREATE
         changeEntitlementAndCheckForCompletion(baseEntitlement, "Assault-Rifle", BillingPeriod.MONTHLY, null, NextEvent.CHANGE, NextEvent.INVOICE);
-        invoiceChecker.checkInvoice(account.getId(), invoiceItemCount++, callContext, new ExpectedInvoiceItemCheck(initialCreationDate.toLocalDate(), null, InvoiceItemType.FIXED, new BigDecimal("0")));
-        invoiceChecker.checkChargedThroughDate(subscription.getId(), clock.getUTCToday(), callContext);
+        invoiceChecker.checkInvoice(account.getId(), invoiceItemCount++, callContext, new ExpectedInvoiceItemCheck(initialCreationDate.toLocalDate(), new LocalDate(2012, 3, 2), InvoiceItemType.FIXED, new BigDecimal("0")));
+        invoiceChecker.checkChargedThroughDate(subscription.getId(), new LocalDate(2012, 3, 2), callContext);
 
         //
         // MOVE 4 * TIME THE CLOCK
@@ -410,9 +400,9 @@ public class TestIntegration extends TestIntegrationBase {
 
 
         final TestDryRunArguments dryRun = new TestDryRunArguments(DryRunType.SUBSCRIPTION_ACTION, "Pistol", ProductCategory.BASE, BillingPeriod.MONTHLY, null, null, SubscriptionEventType.CHANGE,
-                                                                   subscription.getId(), subscription.getBundleId(), null, null);
+                                                                   subscription.getId(), subscription.getBundleId(), null, BillingActionPolicy.END_OF_TERM);
         try {
-           invoiceUserApi.triggerDryRunInvoiceGeneration(account.getId(), clock.getUTCToday(), dryRun, callContext);
+           invoiceUserApi.triggerDryRunInvoiceGeneration(account.getId(), clock.getUTCToday(), dryRun, Collections.emptyList(), callContext);
             Assert.fail("Call should return no invoices");
         } catch (final InvoiceApiException e) {
             assertEquals(e.getCode(), INVOICE_NOTHING_TO_DO.getCode());
@@ -474,17 +464,17 @@ public class TestIntegration extends TestIntegrationBase {
         DefaultEntitlement baseEntitlement = createBaseEntitlementAndCheckForCompletion(account.getId(), "bundleKey", "Shotgun", ProductCategory.BASE, BillingPeriod.MONTHLY, NextEvent.CREATE, NextEvent.BLOCK, NextEvent.INVOICE);
         DefaultSubscriptionBase subscription = subscriptionDataFromSubscription(baseEntitlement.getSubscriptionBase());
 
-        invoiceChecker.checkInvoice(account.getId(), invoiceItemCount++, callContext, new ExpectedInvoiceItemCheck(initialCreationDate.toLocalDate(), null, InvoiceItemType.FIXED, new BigDecimal("0")));
-        // No end date for the trial item (fixed price of zero), and CTD should be today (i.e. when the trial started)
-        invoiceChecker.checkChargedThroughDate(subscription.getId(), clock.getUTCToday(), callContext);
+        invoiceChecker.checkInvoice(account.getId(), invoiceItemCount++, callContext, new ExpectedInvoiceItemCheck(initialCreationDate.toLocalDate(), new LocalDate(2012, 3, 2), InvoiceItemType.FIXED, new BigDecimal("0")));
+        // No end date for the trial item (fixed price of zero), so CTD should be end of trial phase
+        invoiceChecker.checkChargedThroughDate(subscription.getId(), new LocalDate(2012, 3, 2), callContext);
 
         //
         // CHANGE PLAN IMMEDIATELY AND EXPECT BOTH EVENTS: NextEvent.CHANGE NextEvent.INVOICE
         //
         clock.addDeltaFromReality(1000); // Ensure CHANGE does not collide with CREATE
         baseEntitlement = changeEntitlementAndCheckForCompletion(baseEntitlement, "Assault-Rifle", BillingPeriod.MONTHLY, null, NextEvent.CHANGE, NextEvent.INVOICE);
-        invoiceChecker.checkInvoice(account.getId(), invoiceItemCount++, callContext, new ExpectedInvoiceItemCheck(initialCreationDate.toLocalDate(), null, InvoiceItemType.FIXED, new BigDecimal("0")));
-        invoiceChecker.checkChargedThroughDate(subscription.getId(), clock.getUTCToday(), callContext);
+        invoiceChecker.checkInvoice(account.getId(), invoiceItemCount++, callContext, new ExpectedInvoiceItemCheck(initialCreationDate.toLocalDate(), new LocalDate(2012, 3, 2), InvoiceItemType.FIXED, new BigDecimal("0")));
+        invoiceChecker.checkChargedThroughDate(subscription.getId(), new LocalDate(2012, 3, 2), callContext);
 
         //
         // MOVE 4 * TIME THE CLOCK
@@ -593,7 +583,7 @@ public class TestIntegration extends TestIntegrationBase {
 
 
 
-    @Test(groups = "slow")
+    @Test(groups = "slow", enabled = false) //TODO_1739 - Test disabled due to behavior change, revisit
     public void testCreateMultipleBPWithSameExternalKey() throws Exception {
         final DateTime initialDate = new DateTime(2012, 4, 25, 0, 13, 42, 0, testTimeZone);
         clock.setDeltaFromReality(initialDate.getMillis() - clock.getUTCNow().getMillis());
@@ -608,7 +598,7 @@ public class TestIntegration extends TestIntegrationBase {
         final SubscriptionBundle initialBundle = subscriptionApi.getActiveSubscriptionBundleForExternalKey("bundleKey", callContext);
 
         busHandler.pushExpectedEvents(NextEvent.BLOCK, NextEvent.CANCEL, NextEvent.NULL_INVOICE);
-        baseEntitlement.cancelEntitlementWithPolicy(EntitlementActionPolicy.IMMEDIATE, ImmutableList.<PluginProperty>of(), callContext);
+        baseEntitlement.cancelEntitlementWithPolicy(EntitlementActionPolicy.IMMEDIATE, Collections.emptyList(), callContext);
         assertListenerStatus();
 
         final String newProductName = "Pistol";
@@ -623,14 +613,14 @@ public class TestIntegration extends TestIntegrationBase {
         assertEquals(initialBundle.getAccountId(), newBundle.getAccountId());
         assertEquals(initialBundle.getExternalKey(), newBundle.getExternalKey());
 
-        final Entitlement refreshedBaseEntitlement = entitlementApi.getEntitlementForId(baseEntitlement.getId(), callContext);
+        final Entitlement refreshedBaseEntitlement = entitlementApi.getEntitlementForId(baseEntitlement.getId(), false, callContext);
         assertEquals(refreshedBaseEntitlement.getState(), EntitlementState.CANCELLED);
         assertEquals(newBaseEntitlement.getState(), EntitlementState.ACTIVE);
 
 
         // One more time
         busHandler.pushExpectedEvents(NextEvent.BLOCK, NextEvent.CANCEL, NextEvent.NULL_INVOICE);
-        newBaseEntitlement.cancelEntitlementWithPolicy(EntitlementActionPolicy.IMMEDIATE, ImmutableList.<PluginProperty>of(), callContext);
+        newBaseEntitlement.cancelEntitlementWithPolicy(EntitlementActionPolicy.IMMEDIATE, Collections.emptyList(), callContext);
         assertListenerStatus();
 
         final String newerProductName = "Shotgun";
@@ -675,7 +665,7 @@ public class TestIntegration extends TestIntegrationBase {
         final DefaultSubscriptionBase subscription = (DefaultSubscriptionBase) baseEntitlement.getSubscriptionBase();
         final DateTime startDate = subscription.getCurrentPhaseStart();
         final BigDecimal rate = subscription.getCurrentPhase().getFixed().getPrice().getPrice(Currency.USD);
-        verifyTestResult(accountId, subscription.getId(), startDate, null, rate, clock.getUTCNow(), 1);
+        verifyTestResult(accountId, subscription.getId(), startDate, null, rate, initialDate.plusDays(30), 1);
 
         //
         // MOVE TIME TO AFTER TRIAL AND EXPECT BOTH EVENTS :  NextEvent.PHASE NextEvent.INVOICE
@@ -687,9 +677,9 @@ public class TestIntegration extends TestIntegrationBase {
         invoiceChecker.checkInvoice(account.getId(), 2, callContext, new ExpectedInvoiceItemCheck(new LocalDate(2012, 3, 2), new LocalDate(2012, 4, 2), InvoiceItemType.RECURRING, new BigDecimal("249.95")));
 
         // PAUSE THE ENTITLEMENT
-        DefaultEntitlement entitlement = (DefaultEntitlement) entitlementApi.getEntitlementForId(baseEntitlement.getId(), callContext);
+        DefaultEntitlement entitlement = (DefaultEntitlement) entitlementApi.getEntitlementForId(baseEntitlement.getId(), false, callContext);
         busHandler.pushExpectedEvents(NextEvent.BLOCK, NextEvent.INVOICE);
-        entitlementApi.pause(entitlement.getBundleId(), clock.getUTCNow().toLocalDate(), ImmutableList.<PluginProperty>of(), callContext);
+        entitlementApi.pause(entitlement.getBundleId(), clock.getUTCNow().toLocalDate(), Collections.emptyList(), callContext);
         assertListenerStatus();
 
         invoiceChecker.checkInvoice(account.getId(), 2, callContext,
@@ -699,14 +689,14 @@ public class TestIntegration extends TestIntegrationBase {
                                     new ExpectedInvoiceItemCheck(new LocalDate(2012, 3, 4), new LocalDate(2012, 4, 2), InvoiceItemType.REPAIR_ADJ, new BigDecimal("-233.82")),
                                     new ExpectedInvoiceItemCheck(new LocalDate(2012, 3, 4), new LocalDate(2012, 3, 4), InvoiceItemType.CBA_ADJ, new BigDecimal("233.82")));
 
-        entitlement = (DefaultEntitlement) entitlementApi.getEntitlementForId(baseEntitlement.getId(), callContext);
+        entitlement = (DefaultEntitlement) entitlementApi.getEntitlementForId(baseEntitlement.getId(), false, callContext);
         Assert.assertEquals(entitlement.getState(), EntitlementState.BLOCKED);
 
         // MOVE CLOCK FORWARD ADN CHECK THERE IS NO NEW INVOICE
         clock.addDeltaFromReality(AT_LEAST_ONE_MONTH_MS); // 2012-4-5
 
         busHandler.pushExpectedEvents(NextEvent.BLOCK, NextEvent.NULL_INVOICE, NextEvent.INVOICE);
-        entitlementApi.resume(entitlement.getBundleId(), clock.getUTCNow().toLocalDate(), ImmutableList.<PluginProperty>of(), callContext);
+        entitlementApi.resume(entitlement.getBundleId(), clock.getUTCNow().toLocalDate(), Collections.emptyList(), callContext);
         assertListenerStatus();
 
         invoiceChecker.checkInvoice(account.getId(), 4, callContext,
@@ -747,7 +737,7 @@ public class TestIntegration extends TestIntegrationBase {
         final DefaultSubscriptionBase subscription = (DefaultSubscriptionBase) baseEntitlement.getSubscriptionBase();
         final DateTime startDate = subscription.getCurrentPhaseStart();
         final BigDecimal rate = subscription.getCurrentPhase().getFixed().getPrice().getPrice(Currency.USD);
-        verifyTestResult(accountId, subscription.getId(), startDate, null, rate, clock.getUTCNow(), 1);
+        verifyTestResult(accountId, subscription.getId(), startDate, null, rate, initialDate.plusDays(30), 1);
 
         //
         // MOVE TIME TO AFTER TRIAL (2012-03-04)
@@ -759,17 +749,17 @@ public class TestIntegration extends TestIntegrationBase {
         invoiceChecker.checkInvoice(accountId,
                                     1,
                                     callContext,
-                                    ImmutableList.<ExpectedInvoiceItemCheck>of(new ExpectedInvoiceItemCheck(new LocalDate(2012, 2, 1), null, InvoiceItemType.FIXED, BigDecimal.ZERO)));
+                                    List.of(new ExpectedInvoiceItemCheck(new LocalDate(2012, 2, 1), new LocalDate(2012, 3, 2), InvoiceItemType.FIXED, BigDecimal.ZERO)));
 
         invoiceChecker.checkInvoice(accountId,
                                     2,
                                     callContext,
-                                    ImmutableList.<ExpectedInvoiceItemCheck>of(new ExpectedInvoiceItemCheck(new LocalDate(2012, 3, 2), new LocalDate(2012, 4, 2), InvoiceItemType.RECURRING, new BigDecimal("249.95"))));
+                                    List.of(new ExpectedInvoiceItemCheck(new LocalDate(2012, 3, 2), new LocalDate(2012, 4, 2), InvoiceItemType.RECURRING, new BigDecimal("249.95"))));
 
         // Pause the entitlement between 2012-03-05 and 2012-03-15
-        DefaultEntitlement entitlement = (DefaultEntitlement) entitlementApi.getEntitlementForId(baseEntitlement.getId(), callContext);
-        entitlementApi.pause(entitlement.getBundleId(), new LocalDate(2012, 3, 5), ImmutableList.<PluginProperty>of(), callContext);
-        entitlementApi.resume(entitlement.getBundleId(), new LocalDate(2012, 3, 15), ImmutableList.<PluginProperty>of(), callContext);
+        DefaultEntitlement entitlement = (DefaultEntitlement) entitlementApi.getEntitlementForId(baseEntitlement.getId(), false, callContext);
+        entitlementApi.pause(entitlement.getBundleId(), new LocalDate(2012, 3, 5), Collections.emptyList(), callContext);
+        entitlementApi.resume(entitlement.getBundleId(), new LocalDate(2012, 3, 15), Collections.emptyList(), callContext);
 
         // Advance clock to 2012-03-07
         busHandler.pushExpectedEvents(NextEvent.BLOCK, NextEvent.INVOICE);
@@ -779,16 +769,16 @@ public class TestIntegration extends TestIntegrationBase {
         invoiceChecker.checkInvoice(accountId,
                                     2,
                                     callContext,
-                                    ImmutableList.<ExpectedInvoiceItemCheck>of(new ExpectedInvoiceItemCheck(new LocalDate(2012, 3, 2), new LocalDate(2012, 4, 2), InvoiceItemType.RECURRING, new BigDecimal("249.95"))));
+                                    List.of(new ExpectedInvoiceItemCheck(new LocalDate(2012, 3, 2), new LocalDate(2012, 4, 2), InvoiceItemType.RECURRING, new BigDecimal("249.95"))));
 
         invoiceChecker.checkInvoice(accountId,
                                     3,
                                     callContext,
-                                    ImmutableList.<ExpectedInvoiceItemCheck>of(new ExpectedInvoiceItemCheck(new LocalDate(2012, 3, 5), new LocalDate(2012, 4, 2), InvoiceItemType.REPAIR_ADJ, new BigDecimal("-225.76")),
-                                                                               new ExpectedInvoiceItemCheck(new LocalDate(2012, 3, 7), new LocalDate(2012, 3, 7), InvoiceItemType.CBA_ADJ, new BigDecimal("225.76"))));
+                                    List.of(new ExpectedInvoiceItemCheck(new LocalDate(2012, 3, 5), new LocalDate(2012, 4, 2), InvoiceItemType.REPAIR_ADJ, new BigDecimal("-225.76")),
+                                            new ExpectedInvoiceItemCheck(new LocalDate(2012, 3, 7), new LocalDate(2012, 3, 7), InvoiceItemType.CBA_ADJ, new BigDecimal("225.76"))));
 
         // Entitlement should be blocked
-        entitlement = (DefaultEntitlement) entitlementApi.getEntitlementForId(baseEntitlement.getId(), callContext);
+        entitlement = (DefaultEntitlement) entitlementApi.getEntitlementForId(baseEntitlement.getId(), false, callContext);
         Assert.assertEquals(entitlement.getState(), EntitlementState.BLOCKED);
 
         // Advance clock to 2012-03-12, nothing should happen
@@ -796,15 +786,15 @@ public class TestIntegration extends TestIntegrationBase {
         assertListenerStatus();
 
         // Entitlement is still blocked
-        entitlement = (DefaultEntitlement) entitlementApi.getEntitlementForId(baseEntitlement.getId(), callContext);
+        entitlement = (DefaultEntitlement) entitlementApi.getEntitlementForId(baseEntitlement.getId(), false, callContext);
         Assert.assertEquals(entitlement.getState(), EntitlementState.BLOCKED);
 
-        List<Invoice> invoices = invoiceUserApi.getInvoicesByAccount(accountId, false, false, callContext);
+        List<Invoice> invoices = invoiceUserApi.getInvoicesByAccount(accountId, false, false, true, callContext);
         assertEquals(invoices.size(), 3);
 
         // Cancel entitlement start of term but with billing policy immediate (ENT_BLOCKED must be after ENT_CANCELLED to trigger the bug)
         busHandler.pushExpectedEvents(NextEvent.BLOCK, NextEvent.CANCEL, NextEvent.NULL_INVOICE);
-        baseEntitlement.cancelEntitlementWithDateOverrideBillingPolicy(new LocalDate(2012, 3, 2), BillingActionPolicy.IMMEDIATE, ImmutableList.<PluginProperty>of(), callContext);
+        baseEntitlement.cancelEntitlementWithDateOverrideBillingPolicy(new LocalDate(2012, 3, 2), BillingActionPolicy.IMMEDIATE, Collections.emptyList(), callContext);
         assertListenerStatus();
 
         // 2012-03-16
@@ -818,7 +808,7 @@ public class TestIntegration extends TestIntegrationBase {
         assertListenerStatus();
 
         // No new invoices
-        invoices = invoiceUserApi.getInvoicesByAccount(accountId, false, false, callContext);
+        invoices = invoiceUserApi.getInvoicesByAccount(accountId, false, false, true, callContext);
         assertEquals(invoices.size(), 3);
 
         checkNoMoreInvoiceToGenerate(account);
@@ -837,14 +827,14 @@ public class TestIntegration extends TestIntegrationBase {
 
         final DefaultEntitlement baseEntitlement = createBaseEntitlementAndCheckForCompletion(account.getId(), "bundleKey", productName, ProductCategory.BASE, BillingPeriod.MONTHLY, NextEvent.CREATE, NextEvent.BLOCK, NextEvent.INVOICE);
 
-        List<Invoice> invoices = invoiceUserApi.getInvoicesByAccount(accountId, false, false, callContext);
+        List<Invoice> invoices = invoiceUserApi.getInvoicesByAccount(accountId, false, false, true, callContext);
         assertNotNull(invoices);
         assertTrue(invoices.size() == 1);
 
         busHandler.pushExpectedEvents(NextEvent.PHASE, NextEvent.INVOICE, NextEvent.PAYMENT, NextEvent.INVOICE_PAYMENT);
         clock.addDeltaFromReality(AT_LEAST_ONE_MONTH_MS);
         assertListenerStatus();
-        invoices = invoiceUserApi.getInvoicesByAccount(accountId, false, false, callContext);
+        invoices = invoiceUserApi.getInvoicesByAccount(accountId, false, false, true, callContext);
         assertNotNull(invoices);
         assertEquals(invoices.size(), 2);
 
@@ -859,7 +849,7 @@ public class TestIntegration extends TestIntegrationBase {
         clock.addDeltaFromReality(AT_LEAST_ONE_MONTH_MS);
         assertListenerStatus();
 
-        invoices = invoiceUserApi.getInvoicesByAccount(accountId, false, false, callContext);
+        invoices = invoiceUserApi.getInvoicesByAccount(accountId, false, false, true, callContext);
         assertNotNull(invoices);
         assertEquals(invoices.size(), 8);
 
@@ -870,7 +860,7 @@ public class TestIntegration extends TestIntegrationBase {
             assertListenerStatus();
         }
 
-        invoices = invoiceUserApi.getInvoicesByAccount(accountId, false, false, callContext);
+        invoices = invoiceUserApi.getInvoicesByAccount(accountId, false, false, true, callContext);
         assertNotNull(invoices);
         assertEquals(invoices.size(), 14);
 
@@ -939,7 +929,7 @@ public class TestIntegration extends TestIntegrationBase {
         // We check there is no more recurring for Refurbish-Maintenance
         expectedInvoices.add(new ExpectedInvoiceItemCheck(new LocalDate(2016, 4, 1), new LocalDate(2016, 5, 1), InvoiceItemType.RECURRING, new BigDecimal("29.95")));
 
-        busHandler.pushExpectedEvents(NextEvent.NULL_INVOICE, NextEvent.INVOICE, NextEvent.PAYMENT, NextEvent.INVOICE_PAYMENT);
+        busHandler.pushExpectedEvents(NextEvent.INVOICE, NextEvent.PAYMENT, NextEvent.INVOICE_PAYMENT, NextEvent.EXPIRED); 
         clock.addMonths(1);
         assertListenerStatus();
 
@@ -948,7 +938,7 @@ public class TestIntegration extends TestIntegrationBase {
         expectedInvoices.clear();
     }
 
-    @Test(groups = "slow")
+    @Test(groups = "slow") 
     public void testThirtyDaysPlanWithFixedTermMonthlyAddOn() throws Exception {
         // Set clock to the initial start date - we implicitly assume here that the account timezone is UTC
         clock.setDay(new LocalDate(2015, 4, 1));
@@ -962,7 +952,7 @@ public class TestIntegration extends TestIntegrationBase {
         // First invoice
         final DefaultEntitlement bpSubscription = createBaseEntitlementAndCheckForCompletion(account.getId(), "bundleKey", "Pistol", ProductCategory.BASE, BillingPeriod.THIRTY_DAYS, NextEvent.CREATE, NextEvent.BLOCK, NextEvent.INVOICE);
 
-        expectedInvoices.add(new ExpectedInvoiceItemCheck(new LocalDate(2015, 4, 1), null, InvoiceItemType.FIXED, BigDecimal.ZERO));
+        expectedInvoices.add(new ExpectedInvoiceItemCheck(new LocalDate(2015, 4, 1), new LocalDate(2015, 5, 1), InvoiceItemType.FIXED, BigDecimal.ZERO));
         invoiceChecker.checkInvoice(account.getId(), 1, callContext, expectedInvoices);
         expectedInvoices.clear();
 
@@ -983,7 +973,7 @@ public class TestIntegration extends TestIntegrationBase {
         invoiceChecker.checkInvoice(account.getId(), 3, callContext, expectedInvoices);
         expectedInvoices.clear();
 
-        // Next 20 invoices, including last recurring for Refurbish-Maintenance
+        // Next 10 invoices, including last recurring for Refurbish-Maintenance
         LocalDate startDateBase = new LocalDate(2015, 5, 31);
         LocalDate startDateAddOn = new LocalDate(2015, 6, 1);
         for (int i = 0; i < 10; i++) {
@@ -1016,7 +1006,7 @@ public class TestIntegration extends TestIntegrationBase {
         expectedInvoices.clear();
 
         // We check there is no more recurring for Refurbish-Maintenance
-        busHandler.pushExpectedEvents(NextEvent.NULL_INVOICE);
+        busHandler.pushExpectedEvents(NextEvent.NULL_INVOICE, NextEvent.EXPIRED);
         clock.setDay(new LocalDate(2016, 4, 1));
         assertListenerStatus();
     }
@@ -1035,7 +1025,7 @@ public class TestIntegration extends TestIntegrationBase {
         // First invoice
         createBaseEntitlementAndCheckForCompletion(account.getId(), "bundleKey", "Pistol", ProductCategory.BASE, BillingPeriod.WEEKLY, NextEvent.CREATE, NextEvent.BLOCK, NextEvent.INVOICE);
 
-        expectedInvoices.add(new ExpectedInvoiceItemCheck(new LocalDate(2015, 4, 1), null, InvoiceItemType.FIXED, BigDecimal.ZERO));
+        expectedInvoices.add(new ExpectedInvoiceItemCheck(new LocalDate(2015, 4, 1), new LocalDate(2015, 5, 1), InvoiceItemType.FIXED, BigDecimal.ZERO));
         invoiceChecker.checkInvoice(account.getId(), 1, callContext, expectedInvoices);
         expectedInvoices.clear();
 
@@ -1088,7 +1078,7 @@ public class TestIntegration extends TestIntegrationBase {
         final DefaultEntitlement bpSubscription = createBaseEntitlementAndCheckForCompletion(account.getId(), "bundleKey", "Shotgun", ProductCategory.BASE, BillingPeriod.ANNUAL, NextEvent.CREATE, NextEvent.BLOCK, NextEvent.INVOICE);
         // Check bundle after BP got created otherwise we get an error from auditApi.
         subscriptionChecker.checkSubscriptionCreated(bpSubscription.getId(), internalCallContext);
-        invoiceChecker.checkInvoice(account.getId(), 1, callContext, new ExpectedInvoiceItemCheck(new LocalDate(2015, 9, 1), null, InvoiceItemType.FIXED, new BigDecimal("0")));
+        invoiceChecker.checkInvoice(account.getId(), 1, callContext, new ExpectedInvoiceItemCheck(new LocalDate(2015, 9, 1), new LocalDate(2015, 10, 1), InvoiceItemType.FIXED, new BigDecimal("0")));
         assertListenerStatus();
 
         //

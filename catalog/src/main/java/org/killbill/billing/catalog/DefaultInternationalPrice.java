@@ -25,9 +25,9 @@ import java.io.ObjectOutput;
 import java.math.BigDecimal;
 import java.util.Arrays;
 
-import javax.xml.bind.annotation.XmlAccessType;
-import javax.xml.bind.annotation.XmlAccessorType;
-import javax.xml.bind.annotation.XmlElement;
+import jakarta.xml.bind.annotation.XmlAccessType;
+import jakarta.xml.bind.annotation.XmlAccessorType;
+import jakarta.xml.bind.annotation.XmlElement;
 
 import org.killbill.billing.ErrorCode;
 import org.killbill.billing.catalog.api.CatalogApiException;
@@ -107,6 +107,9 @@ public class DefaultInternationalPrice extends ValidatingConfig<StandaloneCatalo
     @Override
     public ValidationErrors validate(final StandaloneCatalog catalog, final ValidationErrors errors) {
         final Currency[] supportedCurrencies = catalog.getSupportedCurrencies();
+        if (supportedCurrencies == null) {
+            return errors;
+        }
         for (final Price p : prices) {
             final Currency currency = p.getCurrency();
             if (!currencyIsSupported(currency, supportedCurrencies)) {

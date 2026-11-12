@@ -16,6 +16,15 @@
  */
 package org.killbill.billing.util.config.definition;
 
+import java.util.List;
+
+import org.killbill.billing.callcontext.InternalTenantContext;
+import org.skife.config.Config;
+import org.skife.config.Default;
+import org.skife.config.Description;
+import org.skife.config.Param;
+import org.skife.config.TimeSpan;
+
 /*
  * Marker interface for killbill config files
  */

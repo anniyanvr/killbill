@@ -23,6 +23,7 @@ import java.util.List;
 import org.killbill.billing.account.api.AccountInternalApi;
 import org.killbill.billing.payment.PaymentTestSuiteWithEmbeddedDB;
 import org.killbill.billing.payment.api.PaymentApiException;
+import org.killbill.billing.payment.api.PluginProperty;
 import org.killbill.billing.payment.core.sm.PaymentControlStateMachineHelper;
 import org.killbill.billing.payment.core.sm.PluginControlPaymentAutomatonRunner;
 import org.killbill.billing.payment.dao.PaymentAttemptModelDao;
@@ -33,14 +34,11 @@ import org.killbill.clock.Clock;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
-import com.google.common.collect.ImmutableList;
-
 public class TestIncompletePaymentAttemptTaskWithDB extends PaymentTestSuiteWithEmbeddedDB {
 
     @Test(groups = "slow", description = "https://github.com/killbill/killbill/issues/757")
     public void testHandleRuntimeExceptions() throws PaymentApiException {
-        final List<PaymentAttemptModelDao> paymentAttemptModelDaos = ImmutableList.<PaymentAttemptModelDao>of(new PaymentAttemptModelDao(),
-                                                                                                              new PaymentAttemptModelDao());
+        final List<PaymentAttemptModelDao> paymentAttemptModelDaos = List.of(new PaymentAttemptModelDao(), new PaymentAttemptModelDao());
         final Iterator<PaymentAttemptModelDao> paymentAttemptModelDaoIterator = paymentAttemptModelDaos.iterator();
         final Iterable<PaymentAttemptModelDao> itemsForIteration = new Iterable<PaymentAttemptModelDao>() {
             @Override
@@ -89,7 +87,7 @@ public class TestIncompletePaymentAttemptTaskWithDB extends PaymentTestSuiteWith
         }
 
         @Override
-        public boolean doIteration(final PaymentAttemptModelDao attempt, final boolean isApiPayment) {
+        public boolean doIteration(final PaymentAttemptModelDao attempt, final boolean isApiPayment, final Iterable<PluginProperty> pluginProperties) {
             throw new NullPointerException("NPE for tests");
         }
     }

@@ -30,15 +30,16 @@ import org.killbill.billing.account.api.Account;
 import org.killbill.billing.catalog.api.Currency;
 import org.killbill.billing.invoice.api.Invoice;
 import org.killbill.billing.invoice.api.InvoiceItem;
-import org.killbill.billing.invoice.api.formatters.InvoiceFormatterFactory;
+import org.killbill.billing.invoice.plugin.api.InvoiceFormatterFactory;
 import org.killbill.billing.invoice.template.HtmlInvoice;
 import org.killbill.billing.invoice.template.HtmlInvoiceGenerator;
 import org.killbill.billing.invoice.template.formatters.DefaultInvoiceFormatterFactory;
+import org.killbill.billing.tenant.api.TenantUserApi;
 import org.killbill.billing.util.email.templates.MustacheTemplateEngine;
 import org.killbill.billing.util.email.templates.TemplateEngine;
 import org.killbill.billing.util.template.translation.TranslatorConfig;
 import org.mockito.Mockito;
-import org.skife.config.ConfigurationObjectFactory;
+import org.skife.config.AugmentedConfigurationObjectFactory;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -55,32 +56,31 @@ public class TestHtmlInvoiceGenerator extends InvoiceTestSuiteNoDB {
         }
 
         super.beforeClass();
-        final TranslatorConfig config = new ConfigurationObjectFactory(skifeConfigSource).build(TranslatorConfig.class);
+        final TranslatorConfig config = new AugmentedConfigurationObjectFactory(skifeConfigSource).build(TranslatorConfig.class);
         final TemplateEngine templateEngine = new MustacheTemplateEngine();
         final InvoiceFormatterFactory factory = new DefaultInvoiceFormatterFactory();
-        g = new HtmlInvoiceGenerator(factory, templateEngine, config, null, resourceBundleFactory, null);
+        g = new HtmlInvoiceGenerator(factory, invoiceFormatterFactoryPluginRegistry, templateEngine, config, null, resourceBundleFactory, null, Mockito.mock(TenantUserApi.class));
     }
 
     @Test(groups = "fast")
     public void testGenerateInvoice() throws Exception {
-        final HtmlInvoice output = g.generateInvoice(createAccount(), createInvoice(), false, internalCallContext);
+        final HtmlInvoice output = g.generateInvoice(createAccount(), createInvoice(), false, internalCallContext, null);
         Assert.assertNotNull(output);
         Assert.assertNotNull(output.getBody());
+        Assert.assertTrue(output.getBody().contains("<!-- Test customKey value -->"));
         Assert.assertEquals(output.getSubject(), "Your invoice");
     }
 
     @Test(groups = "fast")
     public void testGenerateEmptyInvoice() throws Exception {
         final Invoice invoice = Mockito.mock(Invoice.class);
-        final HtmlInvoice output = g.generateInvoice(createAccount(), invoice, false, internalCallContext);
-        Assert.assertNotNull(output);
-        Assert.assertNotNull(output.getBody());
-        Assert.assertEquals(output.getSubject(), "Your invoice");
+        final HtmlInvoice output = g.generateInvoice(createAccount(), invoice, false, internalCallContext, null);
+        Assert.assertNull(output);
     }
 
     @Test(groups = "fast")
     public void testGenerateNullInvoice() throws Exception {
-        final HtmlInvoice output = g.generateInvoice(createAccount(), null, false, internalCallContext);
+        final HtmlInvoice output = g.generateInvoice(createAccount(), null, false, internalCallContext, null);
         Assert.assertNull(output);
     }
 
@@ -120,7 +120,7 @@ public class TestHtmlInvoiceGenerator extends InvoiceTestSuiteNoDB {
         items.add(createInvoiceItem(price1, "Domain 1", startDate, endDate, "ning-plus"));
         items.add(createInvoiceItem(price2, "Domain 2", startDate, endDate, "ning-pro"));
         Mockito.when(dummyInvoice.getInvoiceItems()).thenReturn(items);
-
+        Mockito.when(dummyInvoice.getNumberOfItems()).thenReturn(2);
         return dummyInvoice;
     }
 
@@ -132,6 +132,7 @@ public class TestHtmlInvoiceGenerator extends InvoiceTestSuiteNoDB {
         Mockito.when(item.getEndDate()).thenReturn(endDate);
         Mockito.when(item.getPlanName()).thenReturn(planName);
         Mockito.when(item.getDescription()).thenReturn(networkName);
+        Mockito.when(item.getCurrency()).thenReturn(Currency.USD);
 
         return item;
     }

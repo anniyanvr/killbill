@@ -19,20 +19,20 @@ package org.killbill.billing.jaxrs.json;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.UUID;
 
-import javax.ws.rs.core.Response;
-import javax.ws.rs.core.Response.ResponseBuilder;
-import javax.ws.rs.core.Response.Status;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.Response.ResponseBuilder;
+import jakarta.ws.rs.core.Response.Status;
 
 import org.killbill.billing.payment.plugin.api.GatewayNotification;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import io.swagger.annotations.ApiModel;
-import io.swagger.annotations.ApiModelProperty;
+import io.swagger.v3.oas.annotations.media.Schema;
 
-@ApiModel(value="GatewayNotification", parent = JsonBase.class)
+@Schema(name = "GatewayNotification")
 public class GatewayNotificationJson extends JsonBase {
 
     private final UUID kbPaymentId;
@@ -68,11 +68,9 @@ public class GatewayNotificationJson extends JsonBase {
             responseBuilder.entity(entity);
         }
         if (headers != null) {
-            for (final String key : headers.keySet()) {
-                if (headers.get(key) != null) {
-                    for (final String value : headers.get(key)) {
-                        responseBuilder.header(key, value);
-                    }
+            for (final Entry<String, List<String>> entry : headers.entrySet()) {
+                if (entry.getValue() != null) {
+                    entry.getValue().forEach(value -> responseBuilder.header(entry.getKey(), value));
                 }
             }
         }

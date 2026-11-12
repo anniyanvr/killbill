@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.UUID;
 
 import org.joda.time.DateTime;
+import org.killbill.billing.callcontext.InternalTenantContext;
 import org.killbill.billing.catalog.api.BillingActionPolicy;
 import org.killbill.billing.catalog.api.BillingAlignment;
 import org.killbill.billing.catalog.api.BillingPeriod;
@@ -29,6 +30,7 @@ import org.killbill.billing.catalog.api.Plan;
 import org.killbill.billing.catalog.api.PlanPhase;
 import org.killbill.billing.catalog.api.PlanPhaseSpecifier;
 import org.killbill.billing.catalog.api.PriceList;
+import org.killbill.billing.catalog.api.PriceOverrideSvcStatus;
 import org.killbill.billing.catalog.api.Product;
 import org.killbill.billing.catalog.api.ProductCategory;
 import org.killbill.billing.catalog.api.VersionedCatalog;
@@ -84,6 +86,8 @@ public interface SubscriptionBase extends Entity, Blockable {
     public DateTime getEndDate();
 
     public DateTime getFutureEndDate();
+    
+    public DateTime getFutureExpiryDate();
 
     public Plan getCurrentPlan();
 
@@ -113,15 +117,19 @@ public interface SubscriptionBase extends Entity, Blockable {
 
     public Integer getBillCycleDayLocal();
 
+    public Integer getQuantity();
+
     public SubscriptionBaseTransition getPendingTransition();
 
     public SubscriptionBaseTransition getPreviousTransition();
 
-    public List<SubscriptionBaseTransition> getAllTransitions();
+    public List<SubscriptionBaseTransition> getAllTransitions(boolean includeDeleted);
 
     public DateTime getDateOfFirstRecurringNonZeroCharge();
 
-    public List<SubscriptionBillingEvent> getSubscriptionBillingEvents(VersionedCatalog catalog) throws SubscriptionBaseApiException;
+    public List<SubscriptionBillingEvent> getSubscriptionBillingEvents(VersionedCatalog catalog, PriceOverrideSvcStatus priceOverrideSvcStatus, InternalTenantContext context) throws SubscriptionBaseApiException;
 
     public BillingAlignment getBillingAlignment(PlanPhaseSpecifier spec, DateTime transitionTime, VersionedCatalog catalog) throws SubscriptionBaseApiException;
+    
+    public boolean getIncludeDeletedEvents();
 }

@@ -21,7 +21,8 @@ package org.killbill.billing.overdue.listener;
 import java.util.List;
 import java.util.UUID;
 
-import javax.inject.Named;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
 
 import org.killbill.billing.ObjectType;
 import org.killbill.billing.account.api.Account;
@@ -55,12 +56,10 @@ import org.killbill.billing.util.optimizer.BusDispatcherOptimizer;
 import org.killbill.billing.util.tag.ControlTagType;
 import org.killbill.bus.api.BusEvent;
 import org.killbill.clock.Clock;
+import org.killbill.commons.eventbus.AllowConcurrentEvents;
+import org.killbill.commons.eventbus.Subscribe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.common.eventbus.AllowConcurrentEvents;
-import com.google.common.eventbus.Subscribe;
-import com.google.inject.Inject;
 
 public class OverdueListener {
 

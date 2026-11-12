@@ -19,13 +19,19 @@
 package org.killbill.billing.overdue.applicator;
 
 import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
-import javax.inject.Named;
+import javax.annotation.Nullable;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
 
 import org.joda.time.DateTime;
+import org.joda.time.Days;
+import org.joda.time.LocalDate;
 import org.joda.time.Period;
 import org.killbill.billing.ErrorCode;
 import org.killbill.billing.ObjectType;
@@ -33,6 +39,7 @@ import org.killbill.billing.account.api.AccountApiException;
 import org.killbill.billing.account.api.AccountInternalApi;
 import org.killbill.billing.account.api.ImmutableAccountData;
 import org.killbill.billing.callcontext.InternalCallContext;
+import org.killbill.billing.callcontext.InternalTenantContext;
 import org.killbill.billing.catalog.api.BillingActionPolicy;
 import org.killbill.billing.catalog.api.ProductCategory;
 import org.killbill.billing.entitlement.EntitlementInternalApi;
@@ -55,7 +62,6 @@ import org.killbill.billing.overdue.glue.DefaultOverdueModule;
 import org.killbill.billing.overdue.notification.OverdueCheckNotificationKey;
 import org.killbill.billing.overdue.notification.OverdueCheckNotifier;
 import org.killbill.billing.overdue.notification.OverduePoster;
-import org.killbill.billing.payment.api.PluginProperty;
 import org.killbill.billing.tag.TagInternalApi;
 import org.killbill.billing.util.api.TagApiException;
 import org.killbill.billing.util.callcontext.CallContext;
@@ -65,11 +71,6 @@ import org.killbill.billing.util.tag.ControlTagType;
 import org.killbill.billing.util.tag.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.common.base.Predicate;
-import com.google.common.collect.Collections2;
-import com.google.common.collect.ImmutableList;
-import com.google.inject.Inject;
 
 public class OverdueStateApplicator {
 
@@ -107,11 +108,6 @@ public class OverdueStateApplicator {
     public void apply(final DateTime effectiveDate, final OverdueStateSet overdueStateSet, final BillingState billingState,
                       final ImmutableAccountData account, final OverdueState previousOverdueState,
                       final OverdueState nextOverdueState, final InternalCallContext context) throws OverdueException, OverdueApiException {
-        if (isAccountTaggedWith_OVERDUE_ENFORCEMENT_OFF(context)) {
-            log.debug("OverdueStateApplicator: apply returns because account (recordId={}) is set with OVERDUE_ENFORCEMENT_OFF", context.getAccountRecordId());
-            return;
-        }
-
         log.debug("OverdueStateApplicator: time={}, previousState={}, nextState={}, billingState={}", effectiveDate, previousOverdueState, nextOverdueState, billingState);
 
         final OverdueState firstOverdueState = overdueStateSet.getFirstState();
@@ -125,8 +121,9 @@ public class OverdueStateApplicator {
             if (reevaluationInterval == null) {
                 log.debug("OverdueStateApplicator <notificationQ>: missing InitialReevaluationInterval from config, NOT inserting notification for account {}", account.getId());
             } else {
-                log.debug("OverdueStateApplicator <notificationQ>: inserting notification for account={}, time={}", account.getId(), effectiveDate.plus(reevaluationInterval));
-                createFutureNotification(account, effectiveDate.plus(reevaluationInterval), context);
+                final DateTime nextCheck = computeNextCheckDate(effectiveDate, reevaluationInterval, overdueStateSet, billingState, context);
+                log.debug("OverdueStateApplicator <notificationQ>: inserting notification for account={}, time={}", account.getId(), nextCheck);
+                createFutureNotification(account, nextCheck, context);
             }
         } else if (nextOverdueState.isClearState()) {
             clearFutureNotification(account, context);
@@ -188,6 +185,28 @@ public class OverdueStateApplicator {
         } else if (isUnblockBillingTransition(previousOverdueState, nextOverdueState)) {
             remove_AUTO_INVOICE_OFF_on_clear(account.getId(), context);
         }
+    }
+
+    private DateTime computeNextCheckDate(final DateTime effectiveDate,
+                                          final Period reevaluationInterval,
+                                          final OverdueStateSet overdueStateSet,
+                                          @Nullable final BillingState billingState,
+                                          final InternalTenantContext context) {
+        final DateTime byInterval = effectiveDate.plus(reevaluationInterval);
+        if (billingState == null || billingState.getDateOfEarliestUnpaidInvoice() == null) {
+            return byInterval;
+        }
+
+        final LocalDate today = context.toLocalDate(effectiveDate);
+        final LocalDate nextThreshold = overdueStateSet.getNextTimeBasedThreshold(billingState.getDateOfEarliestUnpaidInvoice(), today);
+        if (nextThreshold == null) {
+            return byInterval;
+        }
+
+        final int daysUntilThreshold = Days.daysBetween(today, nextThreshold).getDays();
+        final DateTime byThreshold = effectiveDate.plusDays(daysUntilThreshold);
+
+        return byThreshold.isBefore(byInterval) ? byThreshold : byInterval;
     }
 
     public void clear(final DateTime effectiveDate, final ImmutableAccountData account, final OverdueState previousOverdueState, final OverdueState clearState, final InternalCallContext context) throws OverdueException {
@@ -312,7 +331,7 @@ public class OverdueStateApplicator {
             computeEntitlementsToCancel(account, toBeCancelled, callContext);
 
             try {
-                entitlementInternalApi.cancel(toBeCancelled, context.toLocalDate(effectiveDate), actionPolicy, ImmutableList.<PluginProperty>of(), context);
+                entitlementInternalApi.cancel(toBeCancelled, context.toLocalDate(effectiveDate), actionPolicy, Collections.emptyList(), context);
             } catch (final EntitlementApiException e) {
                 throw new OverdueException(e);
             }
@@ -324,21 +343,22 @@ public class OverdueStateApplicator {
     private void computeEntitlementsToCancel(final ImmutableAccountData account, final List<Entitlement> result, final CallContext context) throws EntitlementApiException {
         final List<Entitlement> allEntitlementsForAccountId = entitlementApi.getAllEntitlementsForAccountId(account.getId(), context);
         // Entitlement is smart enough and will cancel the associated add-ons. See also discussion in https://github.com/killbill/killbill/issues/94
-        final Collection<Entitlement> allEntitlementsButAddonsForAccountId = Collections2.<Entitlement>filter(allEntitlementsForAccountId,
-                                                                                                              new Predicate<Entitlement>() {
-                                                                                                                  @Override
-                                                                                                                  public boolean apply(final Entitlement entitlement) {
-                                                                                                                      // Note: this would miss add-ons created in the future. We should expose a new API to do something similar to EventsStreamBuilder#findBaseSubscription
-                                                                                                                      return !ProductCategory.ADD_ON.equals(entitlement.getLastActiveProductCategory());
-                                                                                                                  }
-                                                                                                              });
+
+        final Collection<Entitlement> allEntitlementsButAddonsForAccountId = allEntitlementsForAccountId
+                .stream()
+                .filter(entitlement -> {
+                    // Note: this would miss add-ons created in the future. We should expose a new API to do something similar to EventsStreamBuilder#findBaseSubscription
+                    return !ProductCategory.ADD_ON.equals(entitlement.getLastActiveProductCategory());
+                })
+                .collect(Collectors.toUnmodifiableList());
+
         result.addAll(allEntitlementsButAddonsForAccountId);
     }
 
     //
     // Uses callcontext information to retrieve account matching the Overduable object and check whether we should do any overdue processing
     //
-    private boolean isAccountTaggedWith_OVERDUE_ENFORCEMENT_OFF(final InternalCallContext context) throws OverdueException {
+    public boolean isAccountTaggedWith_OVERDUE_ENFORCEMENT_OFF(final InternalCallContext context) throws OverdueException {
 
         try {
             final UUID accountId = accountApi.getByRecordId(context.getAccountRecordId(), context);

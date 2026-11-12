@@ -22,13 +22,17 @@ import java.sql.Clob;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.TreeMap;
+import java.util.UUID;
 
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 
 import org.killbill.billing.callcontext.InternalTenantContext;
 import org.killbill.billing.util.api.ColumnInfo;
 import org.killbill.billing.util.api.DatabaseExportOutputStream;
+import org.killbill.billing.util.config.definition.ExportConfig;
 import org.killbill.billing.util.dao.TableName;
 import org.killbill.billing.util.validation.DefaultColumnInfo;
 import org.killbill.billing.util.validation.dao.DatabaseSchemaDao;
@@ -45,12 +49,16 @@ public class DatabaseExportDao {
     private static final Logger logger = LoggerFactory.getLogger(DatabaseExportDao.class);
 
     private final DatabaseSchemaDao databaseSchemaDao;
+
+    private final ExportConfig exportConfig;
     private final IDBI dbi;
 
     @Inject
     public DatabaseExportDao(final DatabaseSchemaDao databaseSchemaDao,
+                             final ExportConfig exportConfig,
                              final IDBI dbi) {
         this.databaseSchemaDao = databaseSchemaDao;
+        this.exportConfig = exportConfig;
         this.dbi = dbi;
     }
 
@@ -63,6 +71,9 @@ public class DatabaseExportDao {
         KB_PER_ACCOUNT("account_record_id", "tenant_record_id"),
         /* bus_events, notifications table */
         NOTIFICATION("search_key1", "search_key2"),
+
+        /* extra tables */
+        EXTRA("account_id", "tenant_id"),
         /* To be discarded */
         OTHER(null, null);
 
@@ -83,7 +94,7 @@ public class DatabaseExportDao {
         }
     }
 
-    public void exportDataForAccount(final DatabaseExportOutputStream out, final InternalTenantContext context) {
+    public void exportDataForAccount(final DatabaseExportOutputStream out, final UUID accountId, final UUID tenantId, final InternalTenantContext context) {
         if (context.getAccountRecordId() == null || context.getTenantRecordId() == null) {
             return;
         }
@@ -94,21 +105,34 @@ public class DatabaseExportDao {
         }
 
         final List<ColumnInfo> columnsForTable = new ArrayList<ColumnInfo>();
+        // Separate lookup table, to keep the ordering of the columns
+        final Map<String, Integer> columnsLookup = new TreeMap<>(String.CASE_INSENSITIVE_ORDER); // Ignore casing (for H2)
+
         // The list of columns is ordered by table name first
         String lastSeenTableName = columns.get(0).getTableName();
+        int j = 0;
         for (final ColumnInfo column : columns) {
             if (!column.getTableName().equals(lastSeenTableName)) {
-                exportDataForAccountAndTable(out, columnsForTable, context);
+                exportDataForAccountAndTable(out, columnsForTable, columnsLookup, accountId, tenantId, context);
                 lastSeenTableName = column.getTableName();
                 columnsForTable.clear();
+                columnsLookup.clear();
+                j = 0;
             }
             columnsForTable.add(column);
+            columnsLookup.put(column.getColumnName(), j);
+            j++;
         }
-        exportDataForAccountAndTable(out, columnsForTable, context);
+        exportDataForAccountAndTable(out, columnsForTable, columnsLookup, accountId, tenantId, context);
     }
 
 
-    private void exportDataForAccountAndTable(final DatabaseExportOutputStream out, final List<ColumnInfo> columnsForTable, final InternalTenantContext context) {
+    private void exportDataForAccountAndTable(final DatabaseExportOutputStream out,
+                                              final List<ColumnInfo> columnsForTable,
+                                              final Map<String, Integer> columnsLookup,
+                                              final UUID accountId,
+                                              final UUID tenantId,
+                                              final InternalTenantContext context) {
 
 
         TableType tableType = TableType.OTHER;
@@ -119,7 +143,11 @@ public class DatabaseExportDao {
             tableType = TableType.KB_ACCOUNT;
         } else if (TableName.ACCOUNT_HISTORY.getTableName().equalsIgnoreCase(tableName)) {
             tableType = TableType.KB_ACCOUNT_HISTORY;
+        } else if(exportConfig.getExtraTablesPrefix() != null && !exportConfig.getExtraTablesPrefix().isEmpty() && exportConfig.getExtraTablesPrefix().stream().anyMatch(prefix -> tableName.toLowerCase().startsWith(prefix))) {
+            tableType = TableType.EXTRA;
         }
+        boolean accountIdColPresent = false;
+        boolean tenantIdColPresent = false;
 
         boolean firstColumn = true;
         final StringBuilder queryBuilder = new StringBuilder("select ");
@@ -132,7 +160,7 @@ public class DatabaseExportDao {
 
             queryBuilder.append(column.getColumnName());
 
-            if (tableType == TableType.OTHER) {
+            if (tableType == TableType.OTHER || tableType == TableType.EXTRA) {
                 // Ignore casing (for H2)
                 if (column.getColumnName().equalsIgnoreCase(TableType.KB_PER_ACCOUNT.getAccountRecordIdColumnName())) {
                     tableType = TableType.KB_PER_ACCOUNT;
@@ -140,47 +168,79 @@ public class DatabaseExportDao {
                     tableType = TableType.NOTIFICATION;
                 }
             }
+
+            if(!tenantIdColPresent && column.getColumnName().equalsIgnoreCase(tableType.getTenantRecordIdColumnName())) {
+                tenantIdColPresent = true;
+            }
+            if(!accountIdColPresent && column.getColumnName().equalsIgnoreCase(tableType.getAccountRecordIdColumnName())) {
+                accountIdColPresent = true;
+            }
         }
 
+        if(!accountIdColPresent || !tenantIdColPresent) {
+            return;
+        }
         // Don't export non-account specific tables
         if (tableType == TableType.OTHER) {
             return;
         }
 
-        // Build the query - make sure to filter by account and tenant!
-        queryBuilder.append(" from ")
-                    .append(tableName)
-                    .append(" where ")
-                    .append(tableType.getAccountRecordIdColumnName())
-                    .append(" = :accountRecordId and ")
-                    .append(tableType.getTenantRecordIdColumnName())
-                    .append("  = :tenantRecordId");
+        if (tableType == TableType.EXTRA) {
+
+            queryBuilder.append(" from ")
+                        .append(tableName)
+                        .append(" where ")
+                        .append(tableType.getTenantRecordIdColumnName())
+                        .append("  = :tenantRecordId and (")
+                        .append(tableType.getAccountRecordIdColumnName())
+                        .append(" = :accountRecordId OR ")
+                        .append(tableType.getAccountRecordIdColumnName()) //TODO_354 - Custom logic for aviate_catalog, to include tenant level entries when accountId is null
+                        .append(" is null)")
+            ;
+
+        } else {
+
+            // Build the query - make sure to filter by account and tenant!
+            queryBuilder.append(" from ")
+                        .append(tableName)
+                        .append(" where ")
+                        .append(tableType.getAccountRecordIdColumnName())
+                        .append(" = :accountRecordId and ")
+                        .append(tableType.getTenantRecordIdColumnName())
+                        .append("  = :tenantRecordId");
+        }
 
         // Notify the stream that we're about to write data for a different table
         out.newTable(tableName, columnsForTable);
-
+        final TableType finalTableType = tableType;
         dbi.withHandle(new HandleCallback<Void>() {
             @Override
             public Void withHandle(final Handle handle) throws Exception {
                 final ResultIterator<Map<String, Object>> iterator = handle.createQuery(queryBuilder.toString())
-                                                                           .bind("accountRecordId", context.getAccountRecordId())
-                                                                           .bind("tenantRecordId", context.getTenantRecordId())
+                                                                           .bind("accountRecordId", finalTableType == TableType.EXTRA ? accountId : context.getAccountRecordId())
+                                                                           .bind("tenantRecordId", finalTableType == TableType.EXTRA ? tenantId : context.getTenantRecordId())
                                                                            .iterator();
                 try {
                     while (iterator.hasNext()) {
                         final Map<String, Object> row = iterator.next();
 
-                        for (final String k : row.keySet()) {
-                            final Object value = row.get(k);
+                        for (final Entry<String, Object> entry : row.entrySet()) {
+                            final String k = entry.getKey();
+                            final Object value = entry.getValue();
                             // For h2, transform a JdbcBlob and a JdbcClob into a byte[]
                             // See also LowerToCamelBeanMapper
                             if (value instanceof Blob) {
                                 final Blob blob = (Blob) value;
-                                row.put(k, blob.getBytes(0, (int) blob.length()));
+                                row.put(k, blob.getBytes(1, (int) blob.length()));
                             } else if (value instanceof Clob) {
                                 // TODO Update LowerToCamelBeanMapper?
                                 final Clob clob = (Clob) value;
                                 row.put(k, clob.getSubString(1, (int) clob.length()));
+                            } else if (value != null &&
+                                       columnsLookup.get(k) != null &&
+                                       columnsForTable.get(columnsLookup.get(k)) != null &&
+                                       "boolean".equals(columnsForTable.get(columnsLookup.get(k)).getDataType())) {
+                                row.put(k, value instanceof Boolean ? value : "1".equals(value.toString())); // Most likely Byte
                             }
                         }
 

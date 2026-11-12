@@ -27,25 +27,27 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
 
-import javax.inject.Inject;
-import javax.inject.Singleton;
-import javax.servlet.http.HttpServletRequest;
-import javax.ws.rs.Consumes;
-import javax.ws.rs.DELETE;
-import javax.ws.rs.DefaultValue;
-import javax.ws.rs.GET;
-import javax.ws.rs.HeaderParam;
-import javax.ws.rs.POST;
-import javax.ws.rs.PUT;
-import javax.ws.rs.Path;
-import javax.ws.rs.PathParam;
-import javax.ws.rs.Produces;
-import javax.ws.rs.QueryParam;
-import javax.ws.rs.core.Response;
-import javax.ws.rs.core.Response.Status;
-import javax.ws.rs.core.UriInfo;
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DELETE;
+import jakarta.ws.rs.DefaultValue;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.HeaderParam;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.PUT;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.Response.Status;
+import jakarta.ws.rs.core.UriInfo;
 
+import org.joda.time.DateTime;
 import org.joda.time.LocalDate;
 import org.killbill.billing.ObjectType;
 import org.killbill.billing.account.api.Account;
@@ -103,28 +105,27 @@ import org.killbill.billing.util.tag.ControlTagType;
 import org.killbill.billing.util.tag.Tag;
 import org.killbill.billing.util.userrequest.CompletionUserRequestBase;
 import org.killbill.clock.Clock;
-import org.killbill.commons.metrics.TimedResource;
+import org.killbill.commons.metrics.api.annotation.TimedResource;
+import org.killbill.commons.utils.Preconditions;
+import org.killbill.commons.utils.collect.Iterables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.base.Function;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Collections2;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
-import io.swagger.annotations.Api;
-import io.swagger.annotations.ApiOperation;
-import io.swagger.annotations.ApiParam;
-import io.swagger.annotations.ApiResponse;
-import io.swagger.annotations.ApiResponses;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Schema;
 
-import static javax.ws.rs.core.MediaType.APPLICATION_JSON;
+import static jakarta.ws.rs.core.MediaType.APPLICATION_JSON;
 import static org.killbill.billing.jaxrs.resources.SubscriptionResourceHelpers.buildBaseEntitlementWithAddOnsSpecifier;
 import static org.killbill.billing.jaxrs.resources.SubscriptionResourceHelpers.buildEntitlementSpecifier;
 
 @Singleton
 @Path(JaxrsResource.SUBSCRIPTIONS_PATH)
-@Api(value = JaxrsResource.SUBSCRIPTIONS_PATH, description = "Operations on subscriptions", tags = "Subscription")
+@io.swagger.v3.oas.annotations.tags.Tag(name = "Subscription", description = "Operations on subscriptions")
 public class SubscriptionResource extends JaxRsResourceBase {
 
     private static final Logger log = LoggerFactory.getLogger(SubscriptionResource.class);
@@ -160,14 +161,15 @@ public class SubscriptionResource extends JaxRsResourceBase {
     @GET
     @Path("/{subscriptionId:" + UUID_PATTERN + "}")
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Retrieve a subscription by id", response = SubscriptionJson.class)
-    @ApiResponses(value = {@ApiResponse(code = 400, message = "Invalid subscription id supplied"),
-                           @ApiResponse(code = 404, message = "Subscription not found")})
+    @Operation(summary = "Retrieve a subscription by id")
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "successful operation", content = @Content(mediaType = "application/json", schema = @Schema(implementation = SubscriptionJson.class))),
+                           @ApiResponse(responseCode = "400", description = "Invalid subscription id supplied"),
+                           @ApiResponse(responseCode = "404", description = "Subscription not found")})
     public Response getSubscription(@PathParam("subscriptionId") final UUID subscriptionId,
                                     @QueryParam(QUERY_AUDIT) @DefaultValue("NONE") final AuditMode auditMode,
-                                    @javax.ws.rs.core.Context final HttpServletRequest request) throws SubscriptionApiException, AccountApiException, CatalogApiException {
+                                    @jakarta.ws.rs.core.Context final HttpServletRequest request) throws SubscriptionApiException, AccountApiException, CatalogApiException {
         final TenantContext context = this.context.createTenantContextNoAccountId(request);
-        final Subscription subscription = subscriptionApi.getSubscriptionForEntitlementId(subscriptionId, context);
+        final Subscription subscription = subscriptionApi.getSubscriptionForEntitlementId(subscriptionId, false, context);
         final Account account = accountUserApi.getAccountById(subscription.getAccountId(), context);
         final AccountAuditLogs accountAuditLogs = auditUserApi.getAccountAuditLogs(subscription.getAccountId(), auditMode.getLevel(), context);
         final SubscriptionJson json = new SubscriptionJson(subscription, account.getCurrency(), accountAuditLogs);
@@ -177,13 +179,14 @@ public class SubscriptionResource extends JaxRsResourceBase {
     @TimedResource
     @GET
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Retrieve a subscription by external key", response = SubscriptionJson.class)
-    @ApiResponses(value = {@ApiResponse(code = 404, message = "Subscription not found")})
-    public Response getSubscriptionByKey(@ApiParam(required = true) @QueryParam(QUERY_EXTERNAL_KEY) final String externalKey,
+    @Operation(summary = "Retrieve a subscription by external key")
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "successful operation", content = @Content(mediaType = "application/json", schema = @Schema(implementation = SubscriptionJson.class))),
+                           @ApiResponse(responseCode = "404", description = "Subscription not found")})
+    public Response getSubscriptionByKey(@Parameter(required = true) @QueryParam(QUERY_EXTERNAL_KEY) final String externalKey,
                                          @QueryParam(QUERY_AUDIT) @DefaultValue("NONE") final AuditMode auditMode,
-                                         @javax.ws.rs.core.Context final HttpServletRequest request) throws SubscriptionApiException, AccountApiException, CatalogApiException {
+                                         @jakarta.ws.rs.core.Context final HttpServletRequest request) throws SubscriptionApiException, AccountApiException, CatalogApiException {
         final TenantContext tenantContext = context.createTenantContextNoAccountId(request);
-        final Subscription subscription = subscriptionApi.getSubscriptionForExternalKey(externalKey, tenantContext);
+        final Subscription subscription = subscriptionApi.getSubscriptionForExternalKey(externalKey, false, tenantContext);
         final Account account = accountUserApi.getAccountById(subscription.getAccountId(), tenantContext);
         final AccountAuditLogs accountAuditLogs = auditUserApi.getAccountAuditLogs(subscription.getAccountId(), auditMode.getLevel(), tenantContext);
         final SubscriptionJson json = new SubscriptionJson(subscription, account.getCurrency(), accountAuditLogs);
@@ -194,10 +197,11 @@ public class SubscriptionResource extends JaxRsResourceBase {
     @GET
     @Path("/{subscriptionId:" + UUID_PATTERN + "}/" + AUDIT_LOG_WITH_HISTORY)
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Retrieve subscription audit logs with history by id", response = AuditLogJson.class, responseContainer = "List")
-    @ApiResponses(value = {@ApiResponse(code = 404, message = "Subscription not found")})
+    @Operation(summary = "Retrieve subscription audit logs with history by id")
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "successful operation", content = @Content(mediaType = "application/json", array = @ArraySchema(schema = @Schema(implementation = AuditLogJson.class)))),
+                           @ApiResponse(responseCode = "404", description = "Subscription not found")})
     public Response getSubscriptionAuditLogsWithHistory(@PathParam("subscriptionId") final UUID subscriptionId,
-                                                        @javax.ws.rs.core.Context final HttpServletRequest request) {
+                                                        @jakarta.ws.rs.core.Context final HttpServletRequest request) {
         final TenantContext tenantContext = context.createTenantContextNoAccountId(request);
         final List<AuditLogWithHistory> auditLogWithHistory = subscriptionApi.getSubscriptionAuditLogsWithHistoryForId(subscriptionId, AuditLevel.FULL, tenantContext);
         return Response.status(Status.OK).entity(getAuditLogsWithHistory(auditLogWithHistory)).build();
@@ -207,22 +211,22 @@ public class SubscriptionResource extends JaxRsResourceBase {
     @GET
     @Path("/" + EVENTS + "/{eventId:" + UUID_PATTERN + "}/" + AUDIT_LOG_WITH_HISTORY)
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Retrieve subscription event audit logs with history by id", response = AuditLogJson.class, responseContainer = "List")
-    @ApiResponses(value = {@ApiResponse(code = 404, message = "Subscription event not found")})
+    @Operation(summary = "Retrieve subscription event audit logs with history by id")
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "successful operation", content = @Content(mediaType = "application/json", array = @ArraySchema(schema = @Schema(implementation = AuditLogJson.class)))),
+                           @ApiResponse(responseCode = "404", description = "Subscription event not found")})
     public Response getSubscriptionEventAuditLogsWithHistory(@PathParam("eventId") final UUID eventId,
-                                                             @javax.ws.rs.core.Context final HttpServletRequest request) {
+                                                             @jakarta.ws.rs.core.Context final HttpServletRequest request) {
         final TenantContext tenantContext = context.createTenantContextNoAccountId(request);
         final List<AuditLogWithHistory> auditLogWithHistory = subscriptionApi.getSubscriptionEventAuditLogsWithHistoryForId(eventId, AuditLevel.FULL, tenantContext);
         return Response.status(Status.OK).entity(getAuditLogsWithHistory(auditLogWithHistory)).build();
     }
 
-
     @TimedResource
     @POST
     @Consumes(APPLICATION_JSON)
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Create an subscription", response = SubscriptionJson.class)
-    @ApiResponses(value = {@ApiResponse(code = 201, message = "Subscription created successfully")})
+    @Operation(summary = "Create a subscription")
+    @ApiResponses(value = {@ApiResponse(responseCode = "201", description = "Subscription created successfully", content = @Content(mediaType = "application/json", schema = @Schema(implementation = SubscriptionJson.class)))})
     public Response createSubscription(final SubscriptionJson subscription,
                                        @QueryParam(QUERY_ENTITLEMENT_REQUESTED_DT) final String entitlementDate,
                                        @QueryParam(QUERY_BILLING_REQUESTED_DT) final String billingDate,
@@ -235,9 +239,9 @@ public class SubscriptionResource extends JaxRsResourceBase {
                                        @HeaderParam(HDR_CREATED_BY) final String createdBy,
                                        @HeaderParam(HDR_REASON) final String reason,
                                        @HeaderParam(HDR_COMMENT) final String comment,
-                                       @javax.ws.rs.core.Context final HttpServletRequest request,
-                                       @javax.ws.rs.core.Context final UriInfo uriInfo) throws EntitlementApiException, AccountApiException, SubscriptionApiException {
-        final List<BulkSubscriptionsBundleJson> entitlementsWithAddOns = ImmutableList.of(new BulkSubscriptionsBundleJson(ImmutableList.<SubscriptionJson>of(subscription)));
+                                       @jakarta.ws.rs.core.Context final HttpServletRequest request,
+                                       @jakarta.ws.rs.core.Context final UriInfo uriInfo) throws EntitlementApiException, AccountApiException, SubscriptionApiException {
+        final List<BulkSubscriptionsBundleJson> entitlementsWithAddOns = List.of(new BulkSubscriptionsBundleJson(List.of(subscription)));
         return createSubscriptionsWithAddOnsInternal(entitlementsWithAddOns, entitlementDate, billingDate, isMigrated, skipResponse, renameKeyIfExistsAndUnused, callCompletion, timeoutSec, pluginPropertiesString, createdBy, reason, comment, request, uriInfo, ObjectType.SUBSCRIPTION);
     }
 
@@ -246,8 +250,8 @@ public class SubscriptionResource extends JaxRsResourceBase {
     @Path("/createSubscriptionWithAddOns")
     @Consumes(APPLICATION_JSON)
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Create an entitlement with addOn products", response = BundleJson.class)
-    @ApiResponses(value = {@ApiResponse(code = 201, message = "Subscriptions created successfully")})
+    @Operation(summary = "Create an entitlement with addOn products")
+    @ApiResponses(value = {@ApiResponse(responseCode = "201", description = "Subscriptions created successfully", content = @Content(mediaType = "application/json", schema = @Schema(implementation = BundleJson.class)))})
     public Response createSubscriptionWithAddOns(final List<SubscriptionJson> entitlements,
                                                  @QueryParam(QUERY_ENTITLEMENT_REQUESTED_DT) final String entitlementDate,
                                                  @QueryParam(QUERY_BILLING_REQUESTED_DT) final String billingDate,
@@ -260,9 +264,9 @@ public class SubscriptionResource extends JaxRsResourceBase {
                                                  @HeaderParam(HDR_CREATED_BY) final String createdBy,
                                                  @HeaderParam(HDR_REASON) final String reason,
                                                  @HeaderParam(HDR_COMMENT) final String comment,
-                                                 @javax.ws.rs.core.Context final HttpServletRequest request,
-                                                 @javax.ws.rs.core.Context final UriInfo uriInfo) throws EntitlementApiException, AccountApiException, SubscriptionApiException {
-        final List<BulkSubscriptionsBundleJson> entitlementsWithAddOns = ImmutableList.of(new BulkSubscriptionsBundleJson(entitlements));
+                                                 @jakarta.ws.rs.core.Context final HttpServletRequest request,
+                                                 @jakarta.ws.rs.core.Context final UriInfo uriInfo) throws EntitlementApiException, AccountApiException, SubscriptionApiException {
+        final List<BulkSubscriptionsBundleJson> entitlementsWithAddOns = List.of(new BulkSubscriptionsBundleJson(entitlements));
         return createSubscriptionsWithAddOnsInternal(entitlementsWithAddOns, entitlementDate, billingDate, isMigrated, skipResponse, renameKeyIfExistsAndUnused, callCompletion, timeoutSec, pluginPropertiesString, createdBy, reason, comment, request, uriInfo, ObjectType.BUNDLE);
     }
 
@@ -271,8 +275,8 @@ public class SubscriptionResource extends JaxRsResourceBase {
     @Path("/createSubscriptionsWithAddOns")
     @Consumes(APPLICATION_JSON)
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Create multiple entitlements with addOn products", response = BundleJson.class, responseContainer = "List")
-    @ApiResponses(value = {@ApiResponse(code = 201, message = "Subscriptions created successfully")})
+    @Operation(summary = "Create multiple entitlements with addOn products")
+    @ApiResponses(value = {@ApiResponse(responseCode = "201", description = "Subscriptions created successfully", content = @Content(mediaType = "application/json", array = @ArraySchema(schema = @Schema(implementation = BundleJson.class))))})
     public Response createSubscriptionsWithAddOns(final List<BulkSubscriptionsBundleJson> entitlementsWithAddOns,
                                                   @QueryParam(QUERY_ENTITLEMENT_REQUESTED_DT) final String entitlementDate,
                                                   @QueryParam(QUERY_BILLING_REQUESTED_DT) final String billingDate,
@@ -285,8 +289,8 @@ public class SubscriptionResource extends JaxRsResourceBase {
                                                   @HeaderParam(HDR_CREATED_BY) final String createdBy,
                                                   @HeaderParam(HDR_REASON) final String reason,
                                                   @HeaderParam(HDR_COMMENT) final String comment,
-                                                  @javax.ws.rs.core.Context final HttpServletRequest request,
-                                                  @javax.ws.rs.core.Context final UriInfo uriInfo) throws EntitlementApiException, AccountApiException, SubscriptionApiException {
+                                                  @jakarta.ws.rs.core.Context final HttpServletRequest request,
+                                                  @jakarta.ws.rs.core.Context final UriInfo uriInfo) throws EntitlementApiException, AccountApiException, SubscriptionApiException {
         return createSubscriptionsWithAddOnsInternal(entitlementsWithAddOns, entitlementDate, billingDate, isMigrated, skipResponse, renameKeyIfExistsAndUnused, callCompletion, timeoutSec, pluginPropertiesString, createdBy, reason, comment, request, uriInfo, ObjectType.ACCOUNT);
     }
 
@@ -310,7 +314,9 @@ public class SubscriptionResource extends JaxRsResourceBase {
         final Iterable<PluginProperty> pluginProperties = extractPluginProperties(pluginPropertiesString);
         final CallContext callContextNoAccountId = context.createCallContextNoAccountId(createdBy, reason, comment, request);
 
-        Preconditions.checkArgument(Iterables.size(entitlementsWithAddOns.get(0).getBaseEntitlementAndAddOns()) > 0, "SubscriptionJson body should be specified");
+        Preconditions.checkArgument(Iterables.size(entitlementsWithAddOns.get(0).getBaseEntitlementAndAddOns()) > 0,
+                                    "SubscriptionJson body should be specified");
+
         final Account account = accountUserApi.getAccountById(entitlementsWithAddOns.get(0).getBaseEntitlementAndAddOns().get(0).getAccountId(), callContextNoAccountId);
         final CallContext callContext = context.createCallContextWithAccountId(account.getId(), createdBy, reason, comment, request);
 
@@ -341,7 +347,9 @@ public class SubscriptionResource extends JaxRsResourceBase {
                     bundleId = entitlement.getBundleId();
                 }
                 // Can be set on a single element (e.g. BASE + ADD_ON for a new bundle)
-                Preconditions.checkArgument(bundleExternalKey == null || entitlement.getBundleExternalKey() == null || bundleExternalKey.equals(entitlement.getBundleExternalKey()), "SubscriptionJson externalKey should be the same for each element");
+                Preconditions.checkArgument(bundleExternalKey == null || entitlement.getBundleExternalKey() == null || bundleExternalKey.equals(entitlement.getBundleExternalKey()),
+                                            "SubscriptionJson externalKey should be the same for each element");
+
                 if (bundleExternalKey == null) {
                     bundleExternalKey = entitlement.getBundleExternalKey();
                 }
@@ -350,12 +358,13 @@ public class SubscriptionResource extends JaxRsResourceBase {
                 entitlementSpecifierList.add(spec);
             }
 
-            final LocalDate resolvedEntitlementDate = toLocalDate(entitlementDate);
-            final LocalDate resolvedBillingDate = toLocalDate(billingDate);
+            final TimeAwareContext timeAwareContext = new TimeAwareContext(account.getTimeZone(), account.getFixedOffsetTimeZone(), account.getReferenceTime());
 
+            final DateTime entitlementDateTime = getDateTimeFromInput(entitlementDate, timeAwareContext);
+            final DateTime billingDateTime = getDateTimeFromInput(billingDate, timeAwareContext);
             final BaseEntitlementWithAddOnsSpecifier baseEntitlementSpecifierWithAddOns = buildBaseEntitlementWithAddOnsSpecifier(entitlementSpecifierList,
-                                                                                                                                  resolvedEntitlementDate,
-                                                                                                                                  resolvedBillingDate,
+                                                                                                                                  entitlementDateTime,
+                                                                                                                                  billingDateTime,
                                                                                                                                   bundleId,
                                                                                                                                   bundleExternalKey,
                                                                                                                                   isMigrated);
@@ -445,18 +454,18 @@ public class SubscriptionResource extends JaxRsResourceBase {
     @PUT
     @Path("/{subscriptionId:" + UUID_PATTERN + "}/" + UNDO_CANCEL)
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Un-cancel an entitlement")
-    @ApiResponses(value = {@ApiResponse(code = 204, message = "Successful operation"),
-                           @ApiResponse(code = 400, message = "Invalid subscription id supplied"),
-                           @ApiResponse(code = 404, message = "Entitlement not found")})
+    @Operation(summary = "Un-cancel an entitlement")
+    @ApiResponses(value = {@ApiResponse(responseCode = "204", description = "Successful operation"),
+                           @ApiResponse(responseCode = "400", description = "Invalid subscription id supplied"),
+                           @ApiResponse(responseCode = "404", description = "Entitlement not found")})
     public Response uncancelSubscriptionPlan(@PathParam("subscriptionId") final UUID subscriptionId,
                                              @QueryParam(QUERY_PLUGIN_PROPERTY) final List<String> pluginPropertiesString,
                                              @HeaderParam(HDR_CREATED_BY) final String createdBy,
                                              @HeaderParam(HDR_REASON) final String reason,
                                              @HeaderParam(HDR_COMMENT) final String comment,
-                                             @javax.ws.rs.core.Context final HttpServletRequest request) throws EntitlementApiException {
+                                             @jakarta.ws.rs.core.Context final HttpServletRequest request) throws EntitlementApiException {
         final Iterable<PluginProperty> pluginProperties = extractPluginProperties(pluginPropertiesString);
-        final Entitlement current = entitlementApi.getEntitlementForId(subscriptionId, context.createCallContextNoAccountId(createdBy, reason, comment, request));
+        final Entitlement current = entitlementApi.getEntitlementForId(subscriptionId, false, context.createCallContextNoAccountId(createdBy, reason, comment, request));
         current.uncancelEntitlement(pluginProperties, context.createCallContextNoAccountId(createdBy, reason, comment, request));
         return Response.status(Status.NO_CONTENT).build();
     }
@@ -465,18 +474,18 @@ public class SubscriptionResource extends JaxRsResourceBase {
     @PUT
     @Path("/{subscriptionId:" + UUID_PATTERN + "}/" + UNDO_CHANGE_PLAN)
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Undo a pending change plan on an entitlement")
-    @ApiResponses(value = {@ApiResponse(code = 204, message = "Successful operation"),
-                           @ApiResponse(code = 400, message = "Invalid subscription id supplied"),
-                           @ApiResponse(code = 404, message = "Entitlement not found")})
+    @Operation(summary = "Undo a pending change plan on an entitlement")
+    @ApiResponses(value = {@ApiResponse(responseCode = "204", description = "Successful operation"),
+                           @ApiResponse(responseCode = "400", description = "Invalid subscription id supplied"),
+                           @ApiResponse(responseCode = "404", description = "Entitlement not found")})
     public Response undoChangeSubscriptionPlan(@PathParam("subscriptionId") final UUID subscriptionId,
                                                @QueryParam(QUERY_PLUGIN_PROPERTY) final List<String> pluginPropertiesString,
                                                @HeaderParam(HDR_CREATED_BY) final String createdBy,
                                                @HeaderParam(HDR_REASON) final String reason,
                                                @HeaderParam(HDR_COMMENT) final String comment,
-                                               @javax.ws.rs.core.Context final HttpServletRequest request) throws EntitlementApiException {
+                                               @jakarta.ws.rs.core.Context final HttpServletRequest request) throws EntitlementApiException {
         final Iterable<PluginProperty> pluginProperties = extractPluginProperties(pluginPropertiesString);
-        final Entitlement current = entitlementApi.getEntitlementForId(subscriptionId, context.createCallContextNoAccountId(createdBy, reason, comment, request));
+        final Entitlement current = entitlementApi.getEntitlementForId(subscriptionId, false, context.createCallContextNoAccountId(createdBy, reason, comment, request));
         current.undoChangePlan(pluginProperties, context.createCallContextNoAccountId(createdBy, reason, comment, request));
         return Response.status(Status.NO_CONTENT).build();
     }
@@ -486,10 +495,10 @@ public class SubscriptionResource extends JaxRsResourceBase {
     @Produces(APPLICATION_JSON)
     @Consumes(APPLICATION_JSON)
     @Path("/{subscriptionId:" + UUID_PATTERN + "}")
-    @ApiOperation(value = "Change entitlement plan")
-    @ApiResponses(value = {@ApiResponse(code = 204, message = "Successful operation"),
-                           @ApiResponse(code = 400, message = "Invalid subscription id supplied"),
-                           @ApiResponse(code = 404, message = "Entitlement not found")})
+    @Operation(summary = "Change entitlement plan")
+    @ApiResponses(value = {@ApiResponse(responseCode = "204", description = "Successful operation"),
+                           @ApiResponse(responseCode = "400", description = "Invalid subscription id supplied"),
+                           @ApiResponse(responseCode = "404", description = "Entitlement not found")})
     public Response changeSubscriptionPlan(@PathParam("subscriptionId") final UUID subscriptionId,
                                            final SubscriptionJson entitlement,
                                            @QueryParam(QUERY_REQUESTED_DT) final String requestedDate,
@@ -500,7 +509,7 @@ public class SubscriptionResource extends JaxRsResourceBase {
                                            @HeaderParam(HDR_CREATED_BY) final String createdBy,
                                            @HeaderParam(HDR_REASON) final String reason,
                                            @HeaderParam(HDR_COMMENT) final String comment,
-                                           @javax.ws.rs.core.Context final HttpServletRequest request) throws EntitlementApiException, AccountApiException, SubscriptionApiException {
+                                           @jakarta.ws.rs.core.Context final HttpServletRequest request) throws EntitlementApiException, AccountApiException, SubscriptionApiException {
         verifyNonNullOrEmpty(entitlement, "SubscriptionJson body should be specified");
         if (entitlement.getPlanName() == null) {
             verifyNonNullOrEmpty(entitlement.getProductName(), "SubscriptionJson productName needs to be set",
@@ -513,17 +522,16 @@ public class SubscriptionResource extends JaxRsResourceBase {
         final Iterable<PluginProperty> pluginProperties = extractPluginProperties(pluginPropertiesString);
         final CallContext callContextNoAccountId = context.createCallContextNoAccountId(createdBy, reason, comment, request);
 
-        final Entitlement current = entitlementApi.getEntitlementForId(subscriptionId, callContextNoAccountId);
+        final Entitlement current = entitlementApi.getEntitlementForId(subscriptionId, false, callContextNoAccountId);
         final CallContext callContext = context.createCallContextWithAccountId(current.getAccountId(), createdBy, reason, comment, request);
 
         final EntitlementCallCompletionCallback<Response> callback = new EntitlementCallCompletionCallback<Response>() {
 
-             private boolean isImmediateOp = true;
+            private boolean isImmediateOp = true;
 
             @Override
             public Response doOperation(final CallContext ctx) throws EntitlementApiException,
                                                                       AccountApiException {
-                final LocalDate inputLocalDate = toLocalDate(requestedDate);
                 final Entitlement newEntitlement;
 
                 final Account account = accountUserApi.getAccountById(current.getAccountId(), callContext);
@@ -531,7 +539,7 @@ public class SubscriptionResource extends JaxRsResourceBase {
                 if (requestedDate == null && billingPolicy == null) {
                     newEntitlement = current.changePlan(spec, pluginProperties, ctx);
                 } else if (billingPolicy == null) {
-                    newEntitlement = current.changePlanWithDate(spec, inputLocalDate, pluginProperties, ctx);
+                    newEntitlement = isDateTime(requestedDate) ? current.changePlanWithDate(spec, toDateTime(requestedDate), pluginProperties, ctx) : current.changePlanWithDate(spec, toLocalDate(requestedDate), pluginProperties, ctx);
                 } else {
                     newEntitlement = current.changePlanOverrideBillingPolicy(spec, null, billingPolicy, pluginProperties, ctx);
                 }
@@ -563,10 +571,10 @@ public class SubscriptionResource extends JaxRsResourceBase {
     @POST
     @Path("/{subscriptionId:" + UUID_PATTERN + "}/" + BLOCK)
     @Consumes(APPLICATION_JSON)
-    @ApiOperation(value = "Block a subscription", response = BlockingStateJson.class, responseContainer = "List")
-    @ApiResponses(value = {@ApiResponse(code = 201, message = "Blocking state created successfully"),
-                           @ApiResponse(code = 400, message = "Invalid subscription id supplied"),
-                           @ApiResponse(code = 404, message = "Subscription not found")})
+    @Operation(summary = "Block a subscription")
+    @ApiResponses(value = {@ApiResponse(responseCode = "201", description = "Blocking state created successfully", content = @Content(mediaType = "application/json", array = @ArraySchema(schema = @Schema(implementation = BlockingStateJson.class)))),
+                           @ApiResponse(responseCode = "400", description = "Invalid subscription id supplied"),
+                           @ApiResponse(responseCode = "404", description = "Subscription not found")})
     public Response addSubscriptionBlockingState(@PathParam(ID_PARAM_NAME) final UUID id,
                                                  final BlockingStateJson json,
                                                  @QueryParam(QUERY_REQUESTED_DT) final String requestedDate,
@@ -574,10 +582,10 @@ public class SubscriptionResource extends JaxRsResourceBase {
                                                  @HeaderParam(HDR_CREATED_BY) final String createdBy,
                                                  @HeaderParam(HDR_REASON) final String reason,
                                                  @HeaderParam(HDR_COMMENT) final String comment,
-                                                 @javax.ws.rs.core.Context final HttpServletRequest request,
-                                                 @javax.ws.rs.core.Context final UriInfo uriInfo) throws SubscriptionApiException, EntitlementApiException, AccountApiException {
+                                                 @jakarta.ws.rs.core.Context final HttpServletRequest request,
+                                                 @jakarta.ws.rs.core.Context final UriInfo uriInfo) throws SubscriptionApiException, EntitlementApiException, AccountApiException {
         final TenantContext tenantContext = context.createTenantContextNoAccountId(request);
-        final Entitlement entitlement = entitlementApi.getEntitlementForId(id, tenantContext);
+        final Entitlement entitlement = entitlementApi.getEntitlementForId(id, false, tenantContext);
         return addBlockingState(json, entitlement.getAccountId(), id, BlockingStateType.SUBSCRIPTION, requestedDate, pluginPropertiesString, createdBy, reason, comment, request, uriInfo);
     }
 
@@ -585,10 +593,10 @@ public class SubscriptionResource extends JaxRsResourceBase {
     @DELETE
     @Path("/{subscriptionId:" + UUID_PATTERN + "}")
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Cancel an entitlement plan")
-    @ApiResponses(value = {@ApiResponse(code = 204, message = "Successful operation"),
-                           @ApiResponse(code = 400, message = "Invalid subscription id supplied"),
-                           @ApiResponse(code = 404, message = "Entitlement not found")})
+    @Operation(summary = "Cancel an entitlement plan")
+    @ApiResponses(value = {@ApiResponse(responseCode = "204", description = "Successful operation"),
+                           @ApiResponse(responseCode = "400", description = "Invalid subscription id supplied"),
+                           @ApiResponse(responseCode = "404", description = "Entitlement not found")})
     public Response cancelSubscriptionPlan(@PathParam("subscriptionId") final UUID subscriptionId,
                                            @QueryParam(QUERY_REQUESTED_DT) final String requestedDate,
                                            @QueryParam(QUERY_CALL_COMPLETION) @DefaultValue("false") final Boolean callCompletion,
@@ -600,12 +608,12 @@ public class SubscriptionResource extends JaxRsResourceBase {
                                            @HeaderParam(HDR_CREATED_BY) final String createdBy,
                                            @HeaderParam(HDR_REASON) final String reason,
                                            @HeaderParam(HDR_COMMENT) final String comment,
-                                           @javax.ws.rs.core.Context final UriInfo uriInfo,
-                                           @javax.ws.rs.core.Context final HttpServletRequest request) throws EntitlementApiException, AccountApiException, SubscriptionApiException {
+                                           @jakarta.ws.rs.core.Context final UriInfo uriInfo,
+                                           @jakarta.ws.rs.core.Context final HttpServletRequest request) throws EntitlementApiException, AccountApiException, SubscriptionApiException {
         final CallContext callContextNoAccountId = context.createCallContextNoAccountId(createdBy, reason, comment, request);
         final Iterable<PluginProperty> pluginProperties = extractPluginProperties(pluginPropertiesString);
 
-        final Entitlement current = entitlementApi.getEntitlementForId(subscriptionId, callContextNoAccountId);
+        final Entitlement current = entitlementApi.getEntitlementForId(subscriptionId, false, callContextNoAccountId);
         final CallContext callContext = context.createCallContextWithAccountId(current.getAccountId(), createdBy, reason, comment, request);
 
         final EntitlementCallCompletionCallback<Response> callback = new EntitlementCallCompletionCallback<Response>() {
@@ -617,19 +625,22 @@ public class SubscriptionResource extends JaxRsResourceBase {
                     throws EntitlementApiException,
                            SubscriptionApiException,
                            AccountApiException {
-                final LocalDate inputLocalDate = toLocalDate(requestedDate);
+
                 final Entitlement newEntitlement;
                 if (billingPolicy == null && entitlementPolicy == null) {
-                    newEntitlement = current.cancelEntitlementWithDate(inputLocalDate, useRequestedDateForBilling, pluginProperties, ctx);
+                    newEntitlement = isDateTime(requestedDate) ? current.cancelEntitlementWithDate(toDateTime(requestedDate), toDateTime(requestedDate), pluginProperties, ctx) : current.cancelEntitlementWithDate(toLocalDate(requestedDate), useRequestedDateForBilling, pluginProperties, ctx);                
                 } else if (billingPolicy == null && entitlementPolicy != null) {
                     newEntitlement = current.cancelEntitlementWithPolicy(entitlementPolicy, pluginProperties, ctx);
                 } else if (billingPolicy != null && entitlementPolicy == null) {
-                    newEntitlement = current.cancelEntitlementWithDateOverrideBillingPolicy(inputLocalDate, billingPolicy, pluginProperties, ctx);
+                    final Account account = accountUserApi.getAccountById(current.getAccountId(), callContextNoAccountId);
+                    final TimeAwareContext timeAwareContext = new TimeAwareContext(account.getTimeZone(), account.getFixedOffsetTimeZone(), account.getReferenceTime());
+                    //Since there is no DateTime version of cancelEntitlementWithDateOverrideBillingPolicy currently, the code below converts input DateTime to LocalDate and uses it. If in the future a DateTime version of this method is added, the code below needs to be updated accordingly
+                    newEntitlement = isDateTime(requestedDate) ? current.cancelEntitlementWithDateOverrideBillingPolicy(timeAwareContext.toLocalDate(toDateTime(requestedDate)), billingPolicy, pluginProperties, ctx) : current.cancelEntitlementWithDateOverrideBillingPolicy(toLocalDate(requestedDate), billingPolicy, pluginProperties, ctx);                	
                 } else {
                     newEntitlement = current.cancelEntitlementWithPolicyOverrideBillingPolicy(entitlementPolicy, billingPolicy, pluginProperties, ctx);
                 }
 
-                final Subscription subscription = subscriptionApi.getSubscriptionForEntitlementId(newEntitlement.getId(), ctx);
+                final Subscription subscription = subscriptionApi.getSubscriptionForEntitlementId(newEntitlement.getId(), false, ctx);
                 if (subscription.getBillingEndDate() != null) {
                     final Account account = accountUserApi.getAccountById(subscription.getAccountId(), callContext);
                     final boolean inTheFuture = isInTheFuture(subscription.getBillingEndDate(), account);
@@ -663,9 +674,9 @@ public class SubscriptionResource extends JaxRsResourceBase {
     @Produces(APPLICATION_JSON)
     @Consumes(APPLICATION_JSON)
     @Path("/{subscriptionId:" + UUID_PATTERN + "}/" + BCD)
-    @ApiOperation(value = "Update the BCD associated to a subscription")
-    @ApiResponses(value = {@ApiResponse(code = 204, message = "Successful operation"),
-                           @ApiResponse(code = 400, message = "Invalid entitlement supplied")})
+    @Operation(summary = "Update the BCD associated to a subscription")
+    @ApiResponses(value = {@ApiResponse(responseCode = "204", description = "Successful operation"),
+                           @ApiResponse(responseCode = "400", description = "Invalid entitlement supplied")})
     public Response updateSubscriptionBCD(@PathParam(ID_PARAM_NAME) final UUID subscriptionId,
                                           final SubscriptionJson json,
                                           @QueryParam(QUERY_ENTITLEMENT_EFFECTIVE_FROM_DT) final String effectiveFromDateStr,
@@ -673,28 +684,95 @@ public class SubscriptionResource extends JaxRsResourceBase {
                                           @HeaderParam(HDR_CREATED_BY) final String createdBy,
                                           @HeaderParam(HDR_REASON) final String reason,
                                           @HeaderParam(HDR_COMMENT) final String comment,
-                                          @javax.ws.rs.core.Context final UriInfo uriInfo,
-                                          @javax.ws.rs.core.Context final HttpServletRequest request) throws EntitlementApiException, AccountApiException {
+                                          @jakarta.ws.rs.core.Context final HttpServletRequest request) throws EntitlementApiException, AccountApiException {
 
         verifyNonNullOrEmpty(json, "SubscriptionJson body should be specified");
         verifyNonNullOrEmpty(json.getBillCycleDayLocal(), "SubscriptionJson new BCD should be specified");
 
+        return updateSubscriptionInternal(subscriptionId,
+                                          effectiveFromDateStr,
+                                          forceNewBcdWithPastEffectiveDate,
+                                          json.getBillCycleDayLocal(),
+                                          new SubscriptionUpdate() {
+                                              @Override
+                                              public void doUpdate(final Entitlement entitlement, final int newValue, final LocalDate effectiveFromDate, final CallContext callContext) throws EntitlementApiException {
+                                                  entitlement.updateBCD(json.getBillCycleDayLocal(), effectiveFromDate, callContext);
+                                              }
+                                          },
+                                          createdBy,
+                                          reason,
+                                          comment,
+                                          request);
+    }
+
+    @TimedResource
+    @PUT
+    @Produces(APPLICATION_JSON)
+    @Consumes(APPLICATION_JSON)
+    @Path("/{subscriptionId:" + UUID_PATTERN + "}/" + QUANTITY)
+    @Operation(summary = "Update the quantity associated to a subscription")
+    @ApiResponses(value = {@ApiResponse(responseCode = "204", description = "Successful operation"),
+                           @ApiResponse(responseCode = "400", description = "Invalid entitlement supplied")})
+    public Response updateSubscriptionQuantity(@PathParam(ID_PARAM_NAME) final UUID subscriptionId,
+                                               final SubscriptionJson json,
+                                               @QueryParam(QUERY_ENTITLEMENT_EFFECTIVE_FROM_DT) final String effectiveFromDateStr,
+                                               @QueryParam(QUERY_FORCE_NEW_QUANTITY_WITH_PAST_EFFECTIVE_DATE) @DefaultValue("false") final Boolean forceNewQuantityWithPastEffectiveDate,
+                                               @HeaderParam(HDR_CREATED_BY) final String createdBy,
+                                               @HeaderParam(HDR_REASON) final String reason,
+                                               @HeaderParam(HDR_COMMENT) final String comment,
+                                               @jakarta.ws.rs.core.Context final HttpServletRequest request) throws EntitlementApiException, AccountApiException {
+
+        verifyNonNullOrEmpty(json, "SubscriptionJson body should be specified");
+        verifyNonNullOrEmpty(json.getQuantity(), "SubscriptionJson new quantity should be specified");
+
+        return updateSubscriptionInternal(subscriptionId,
+                                          effectiveFromDateStr,
+                                          forceNewQuantityWithPastEffectiveDate,
+                                          json.getQuantity(),
+                                          new SubscriptionUpdate() {
+                                              @Override
+                                              public void doUpdate(final Entitlement entitlement, final int newValue, final LocalDate effectiveFromDate, final CallContext callContext) throws EntitlementApiException {
+                                                  entitlement.updateQuantity(json.getQuantity(), effectiveFromDate, callContext);
+                                              }
+                                          },
+                                          createdBy,
+                                          reason,
+                                          comment,
+                                          request);
+
+    }
+
+    private interface SubscriptionUpdate {
+        void doUpdate(final Entitlement entitlement, final int quantity, final LocalDate effectiveFromDate, final CallContext context) throws EntitlementApiException;
+    }
+
+    private Response updateSubscriptionInternal(final UUID subscriptionId,
+                                                final String effectiveFromDateStr,
+                                                final Boolean forceNewQuantityWithPastEffectiveDate,
+                                                final int newValue,
+                                                final SubscriptionUpdate callback,
+                                                final String createdBy,
+                                                final String reason,
+                                                final String comment,
+                                                final HttpServletRequest request) throws EntitlementApiException, AccountApiException {
+
         LocalDate effectiveFromDate = toLocalDate(effectiveFromDateStr);
         final CallContext callContext = context.createCallContextNoAccountId(createdBy, reason, comment, request);
 
-        final Entitlement entitlement = entitlementApi.getEntitlementForId(subscriptionId, callContext);
+        final Entitlement entitlement = entitlementApi.getEntitlementForId(subscriptionId, false, callContext);
         if (effectiveFromDateStr != null) {
             final Account account = accountUserApi.getAccountById(entitlement.getAccountId(), callContext);
             final LocalDate accountToday = new LocalDate(callContext.getCreatedDate(), account.getTimeZone());
             int comp = effectiveFromDate.compareTo(accountToday);
             switch (comp) {
                 case -1:
-                    if (!forceNewBcdWithPastEffectiveDate) {
-                        throw new IllegalArgumentException("Changing a subscription BCD in the past may have consequences on previous invoice generated. Use flag forceNewBcdWithPastEffectiveDate to force this behavior");
+                    if (!forceNewQuantityWithPastEffectiveDate) {
+                        throw new IllegalArgumentException("Changing a subscription bcd or quantity in the past may have consequences on previous invoice generated. " +
+                                                           "Use force flag to overrule this behavior");
                     }
                     break;
                 case 0:
-                    // Ensure system will use curremt time for the event so it happens immediately
+                    // Ensure system will use current time for the event so it happens immediately
                     effectiveFromDate = null;
                     break;
                 case 1:
@@ -702,9 +780,10 @@ public class SubscriptionResource extends JaxRsResourceBase {
                     break;
             }
         }
-        entitlement.updateBCD(json.getBillCycleDayLocal(), effectiveFromDate, callContext);
+        callback.doUpdate(entitlement, newValue, effectiveFromDate, callContext);
         return Response.status(Status.NO_CONTENT).build();
     }
+
 
     private static final class CompletionUserRequestEntitlement extends CompletionUserRequestBase {
 
@@ -728,12 +807,7 @@ public class SubscriptionResource extends JaxRsResourceBase {
             // We do the checks in onBlockingState, as it's always guaranteed to be fired, unlike onSubscriptionBaseTransition.
 
             // Check to see if billing is off for the account, in which case, we won't have to wait for any invoice
-            final boolean found_AUTO_INVOICING_OFF = ControlTagType.isAutoInvoicingOff(Collections2.transform(accountTags, new Function<Tag, UUID>() {
-                @Override
-                public UUID apply(final Tag tag) {
-                    return tag.getTagDefinitionId();
-                }
-            }));
+            final boolean found_AUTO_INVOICING_OFF = ControlTagType.isAutoInvoicingOff(accountTags.stream().map(Tag::getTagDefinitionId).collect(Collectors.toUnmodifiableList()));
             if (found_AUTO_INVOICING_OFF) {
                 notifyForCompletion();
                 return;
@@ -761,12 +835,8 @@ public class SubscriptionResource extends JaxRsResourceBase {
                 notifyForCompletion();
             }
 
-            final boolean found_AUTO_PAY_OFF = ControlTagType.isAutoPayOff(Collections2.transform(accountTags, new Function<Tag, UUID>() {
-                @Override
-                public UUID apply(final Tag tag) {
-                    return tag.getTagDefinitionId();
-                }
-            }));
+            final boolean found_AUTO_PAY_OFF = ControlTagType.isAutoPayOff(accountTags.stream().map(Tag::getTagDefinitionId).collect(Collectors.toUnmodifiableList()));
+
             // For AUTO_PAY_OFF, we've decided not to send an event in InvoicePaymentControlPluginApi (https://github.com/killbill/killbill/issues/812)
             if (found_AUTO_PAY_OFF) {
                 notifyForCompletion();
@@ -855,11 +925,12 @@ public class SubscriptionResource extends JaxRsResourceBase {
     @GET
     @Path("/{subscriptionId:" + UUID_PATTERN + "}/" + CUSTOM_FIELDS)
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Retrieve subscription custom fields", response = CustomFieldJson.class, responseContainer = "List", nickname = "getSubscriptionCustomFields")
-    @ApiResponses(value = {@ApiResponse(code = 400, message = "Invalid subscription id supplied")})
+    @Operation(summary = "Retrieve subscription custom fields", operationId = "getSubscriptionCustomFields")
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "successful operation", content = @Content(mediaType = "application/json", array = @ArraySchema(schema = @Schema(implementation = CustomFieldJson.class)))),
+                           @ApiResponse(responseCode = "400", description = "Invalid subscription id supplied")})
     public Response getCustomFields(@PathParam(ID_PARAM_NAME) final UUID id,
                                     @QueryParam(QUERY_AUDIT) @DefaultValue("NONE") final AuditMode auditMode,
-                                    @javax.ws.rs.core.Context final HttpServletRequest request) {
+                                    @jakarta.ws.rs.core.Context final HttpServletRequest request) {
         return super.getCustomFields(id, auditMode, context.createTenantContextNoAccountId(request));
     }
 
@@ -867,16 +938,16 @@ public class SubscriptionResource extends JaxRsResourceBase {
     @Path("/{subscriptionId:" + UUID_PATTERN + "}/" + CUSTOM_FIELDS)
     @Consumes(APPLICATION_JSON)
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Add custom fields to subscription")
-    @ApiResponses(value = {@ApiResponse(code = 201, message = "Custom field created successfully"),
-                           @ApiResponse(code = 400, message = "Invalid subscription id supplied")})
+    @Operation(summary = "Add custom fields to subscription")
+    @ApiResponses(value = {@ApiResponse(responseCode = "201", description = "Custom field created successfully"),
+                           @ApiResponse(responseCode = "400", description = "Invalid subscription id supplied")})
     public Response createSubscriptionCustomFields(@PathParam(ID_PARAM_NAME) final UUID id,
                                                    final List<CustomFieldJson> customFields,
                                                    @HeaderParam(HDR_CREATED_BY) final String createdBy,
                                                    @HeaderParam(HDR_REASON) final String reason,
                                                    @HeaderParam(HDR_COMMENT) final String comment,
-                                                   @javax.ws.rs.core.Context final HttpServletRequest request,
-                                                   @javax.ws.rs.core.Context final UriInfo uriInfo) throws CustomFieldApiException {
+                                                   @jakarta.ws.rs.core.Context final HttpServletRequest request,
+                                                   @jakarta.ws.rs.core.Context final UriInfo uriInfo) throws CustomFieldApiException {
         return super.createCustomFields(id, customFields,
                                         context.createCallContextNoAccountId(createdBy, reason, comment, request), uriInfo, request);
     }
@@ -885,15 +956,15 @@ public class SubscriptionResource extends JaxRsResourceBase {
     @Path("/{subscriptionId:" + UUID_PATTERN + "}/" + CUSTOM_FIELDS)
     @Consumes(APPLICATION_JSON)
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Modify custom fields to subscription")
-    @ApiResponses(value = {@ApiResponse(code = 204, message = "Successful operation"),
-                           @ApiResponse(code = 400, message = "Invalid subscription id supplied")})
+    @Operation(summary = "Modify custom fields to subscription")
+    @ApiResponses(value = {@ApiResponse(responseCode = "204", description = "Successful operation"),
+                           @ApiResponse(responseCode = "400", description = "Invalid subscription id supplied")})
     public Response modifySubscriptionCustomFields(@PathParam(ID_PARAM_NAME) final UUID id,
                                                    final List<CustomFieldJson> customFields,
                                                    @HeaderParam(HDR_CREATED_BY) final String createdBy,
                                                    @HeaderParam(HDR_REASON) final String reason,
                                                    @HeaderParam(HDR_COMMENT) final String comment,
-                                                   @javax.ws.rs.core.Context final HttpServletRequest request) throws CustomFieldApiException {
+                                                   @jakarta.ws.rs.core.Context final HttpServletRequest request) throws CustomFieldApiException {
         return super.modifyCustomFields(id, customFields,
                                         context.createCallContextNoAccountId(createdBy, reason, comment, request));
     }
@@ -902,16 +973,16 @@ public class SubscriptionResource extends JaxRsResourceBase {
     @Path("/{subscriptionId:" + UUID_PATTERN + "}/" + CUSTOM_FIELDS)
     @Consumes(APPLICATION_JSON)
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Remove custom fields from subscription")
-    @ApiResponses(value = {@ApiResponse(code = 204, message = "Successful operation"),
-                           @ApiResponse(code = 400, message = "Invalid subscription id supplied")})
+    @Operation(summary = "Remove custom fields from subscription")
+    @ApiResponses(value = {@ApiResponse(responseCode = "204", description = "Successful operation"),
+                           @ApiResponse(responseCode = "400", description = "Invalid subscription id supplied")})
     public Response deleteSubscriptionCustomFields(@PathParam(ID_PARAM_NAME) final UUID id,
                                                    @QueryParam(QUERY_CUSTOM_FIELD) final List<UUID> customFieldList,
                                                    @HeaderParam(HDR_CREATED_BY) final String createdBy,
                                                    @HeaderParam(HDR_REASON) final String reason,
                                                    @HeaderParam(HDR_COMMENT) final String comment,
-                                                   @javax.ws.rs.core.Context final UriInfo uriInfo,
-                                                   @javax.ws.rs.core.Context final HttpServletRequest request) throws CustomFieldApiException {
+                                                   @jakarta.ws.rs.core.Context final UriInfo uriInfo,
+                                                   @jakarta.ws.rs.core.Context final HttpServletRequest request) throws CustomFieldApiException {
         return super.deleteCustomFields(id, customFieldList,
                                         context.createCallContextNoAccountId(createdBy, reason, comment, request));
     }
@@ -919,15 +990,16 @@ public class SubscriptionResource extends JaxRsResourceBase {
     @GET
     @Path("/{subscriptionId:" + UUID_PATTERN + "}/" + TAGS)
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Retrieve subscription tags", response = TagJson.class, responseContainer = "List", nickname = "getSubscriptionTags")
-    @ApiResponses(value = {@ApiResponse(code = 400, message = "Invalid subscription id supplied"),
-                           @ApiResponse(code = 404, message = "Subscription not found")})
+    @Operation(summary = "Retrieve subscription tags", operationId = "getSubscriptionTags")
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "successful operation", content = @Content(mediaType = "application/json", array = @ArraySchema(schema = @Schema(implementation = TagJson.class)))),
+                           @ApiResponse(responseCode = "400", description = "Invalid subscription id supplied"),
+                           @ApiResponse(responseCode = "404", description = "Subscription not found")})
     public Response getTags(@PathParam(ID_PARAM_NAME) final UUID subscriptionId,
                             @QueryParam(QUERY_INCLUDED_DELETED) @DefaultValue("false") final Boolean includedDeleted,
                             @QueryParam(QUERY_AUDIT) @DefaultValue("NONE") final AuditMode auditMode,
-                            @javax.ws.rs.core.Context final HttpServletRequest request) throws TagDefinitionApiException, SubscriptionApiException {
+                            @jakarta.ws.rs.core.Context final HttpServletRequest request) throws TagDefinitionApiException, SubscriptionApiException {
         final TenantContext tenantContext = context.createTenantContextNoAccountId(request);
-        final Subscription subscription = subscriptionApi.getSubscriptionForEntitlementId(subscriptionId, tenantContext);
+        final Subscription subscription = subscriptionApi.getSubscriptionForEntitlementId(subscriptionId, false, tenantContext);
         return super.getTags(subscription.getAccountId(), subscriptionId, auditMode, includedDeleted, tenantContext);
     }
 
@@ -935,15 +1007,15 @@ public class SubscriptionResource extends JaxRsResourceBase {
     @Path("/{subscriptionId:" + UUID_PATTERN + "}/" + TAGS)
     @Consumes(APPLICATION_JSON)
     @Produces(APPLICATION_JSON)
-    @ApiResponses(value = {@ApiResponse(code = 201, message = "Tag created successfully"),
-                           @ApiResponse(code = 400, message = "Invalid subscription id supplied")})
+    @ApiResponses(value = {@ApiResponse(responseCode = "201", description = "Tag created successfully"),
+                           @ApiResponse(responseCode = "400", description = "Invalid subscription id supplied")})
     public Response createSubscriptionTags(@PathParam(ID_PARAM_NAME) final UUID id,
                                            final List<UUID> tagList,
                                            @HeaderParam(HDR_CREATED_BY) final String createdBy,
                                            @HeaderParam(HDR_REASON) final String reason,
                                            @HeaderParam(HDR_COMMENT) final String comment,
-                                           @javax.ws.rs.core.Context final UriInfo uriInfo,
-                                           @javax.ws.rs.core.Context final HttpServletRequest request) throws TagApiException {
+                                           @jakarta.ws.rs.core.Context final UriInfo uriInfo,
+                                           @jakarta.ws.rs.core.Context final HttpServletRequest request) throws TagApiException {
         return super.createTags(id, tagList, uriInfo,
                                 context.createCallContextNoAccountId(createdBy, reason, comment, request), request);
     }
@@ -952,15 +1024,15 @@ public class SubscriptionResource extends JaxRsResourceBase {
     @Path("/{subscriptionId:" + UUID_PATTERN + "}/" + TAGS)
     @Consumes(APPLICATION_JSON)
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Remove tags from subscription")
-    @ApiResponses(value = {@ApiResponse(code = 204, message = "Successful operation"),
-                           @ApiResponse(code = 400, message = "Invalid subscription id supplied")})
+    @Operation(summary = "Remove tags from subscription")
+    @ApiResponses(value = {@ApiResponse(responseCode = "204", description = "Successful operation"),
+                           @ApiResponse(responseCode = "400", description = "Invalid subscription id supplied")})
     public Response deleteSubscriptionTags(@PathParam(ID_PARAM_NAME) final UUID id,
                                            @QueryParam(QUERY_TAG) final List<UUID> tagList,
                                            @HeaderParam(HDR_CREATED_BY) final String createdBy,
                                            @HeaderParam(HDR_REASON) final String reason,
                                            @HeaderParam(HDR_COMMENT) final String comment,
-                                           @javax.ws.rs.core.Context final HttpServletRequest request) throws TagApiException {
+                                           @jakarta.ws.rs.core.Context final HttpServletRequest request) throws TagApiException {
         return super.deleteTags(id, tagList,
                                 context.createCallContextNoAccountId(createdBy, reason, comment, request));
     }
@@ -970,9 +1042,8 @@ public class SubscriptionResource extends JaxRsResourceBase {
         return ObjectType.SUBSCRIPTION;
     }
 
-    private boolean isInTheFuture(final LocalDate effectiveDate, final ImmutableAccountData account) {
-        final TimeAwareContext timeAwareContext = new TimeAwareContext(account.getFixedOffsetTimeZone(), account.getReferenceTime());
-        return timeAwareContext.toUTCDateTime(effectiveDate).isAfter(clock.getUTCNow());
+    private boolean isInTheFuture(final DateTime effectiveDate, final ImmutableAccountData account) {
+        return effectiveDate.isAfter(clock.getUTCNow());
     }
 
     private Account getAccountFromSubscriptionJson(final SubscriptionJson entitlementJson, final CallContext callContext) throws SubscriptionApiException, AccountApiException, EntitlementApiException {
@@ -980,12 +1051,23 @@ public class SubscriptionResource extends JaxRsResourceBase {
         if (entitlementJson.getAccountId() != null) {
             accountId = entitlementJson.getAccountId();
         } else if (entitlementJson.getSubscriptionId() != null) {
-            final Entitlement entitlement = entitlementApi.getEntitlementForId(entitlementJson.getSubscriptionId(), callContext);
+            final Entitlement entitlement = entitlementApi.getEntitlementForId(entitlementJson.getSubscriptionId(), false, callContext);
             accountId = entitlement.getAccountId();
         } else {
             final SubscriptionBundle subscriptionBundle = subscriptionApi.getSubscriptionBundle(entitlementJson.getBundleId(), callContext);
             accountId = subscriptionBundle.getAccountId();
         }
         return accountUserApi.getAccountById(accountId, callContext);
+    }
+    
+    private DateTime getDateTimeFromInput(final String inputDate, final TimeAwareContext timeAwareContext) {
+        if (inputDate == null || inputDate.isEmpty()) {
+            return null;
+        }
+        if (isDateTime(inputDate)) {
+            return toDateTime(inputDate);
+        } else {
+            return timeAwareContext.toUTCDateTime(toLocalDate(inputDate));
+        }
     }
 }

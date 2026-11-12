@@ -22,6 +22,7 @@ import org.joda.time.LocalDate;
 import org.killbill.billing.catalog.api.BillingMode;
 import org.killbill.billing.catalog.api.BillingPeriod;
 import org.killbill.billing.util.bcd.BillCycleDayCalculator;
+import org.killbill.billing.util.config.definition.InvoiceConfig.InArrearMode;
 
 public class BillingIntervalDetail {
 
@@ -35,15 +36,21 @@ public class BillingIntervalDetail {
     private LocalDate firstBillingCycleDate;
     // Date up to which we should bill
     private LocalDate effectiveEndDate;
+
     private LocalDate lastBillingCycleDate;
 
+    // Variation of in-arrear where we bill early
+    // Any targetDate in the current period allows to bill such period
+    // In normal scenario, we would only bill as we reach the end of the period.
+    private boolean inArrearGreedy;
 
     public BillingIntervalDetail(final LocalDate startDate,
                                  final LocalDate endDate,
                                  final LocalDate targetDate,
                                  final int billingCycleDay,
                                  final BillingPeriod billingPeriod,
-                                 final BillingMode billingMode) {
+                                 final BillingMode billingMode,
+                                 final InArrearMode inArrearMode) {
         this.startDate = startDate;
         this.endDate = endDate;
         this.targetDate = targetDate;
@@ -54,6 +61,7 @@ public class BillingIntervalDetail {
         }
         this.billingPeriod = billingPeriod;
         this.billingMode = billingMode;
+        this.inArrearGreedy = inArrearMode == InArrearMode.GREEDY;
         computeAll();
     }
 
@@ -86,6 +94,11 @@ public class BillingIntervalDetail {
                (endDate == null || endDate.isAfter(startDate)); /* When there is an endDate, it should be > startDate since we don't bill for less than a day */
     }
 
+    public boolean isInArrearGreedy() {
+        return inArrearGreedy;
+    }
+
+
     private void computeAll() {
         calculateFirstBillingCycleDate();
         calculateEffectiveEndDate();
@@ -117,11 +130,27 @@ public class BillingIntervalDetail {
         }
     }
 
+
     private void calculateInArrearEffectiveEndDate() {
-        if (targetDate.isBefore(firstBillingCycleDate)) {
+
+        //
+        // If we have an event mid-billing period (CHANGE, CANCELLATION) that aligns
+        // with the target date, we bill immediately for the period instead of waiting for
+        // the next billing cycle date, a.k.a firstBillingCycleDate. See #1907
+        //
+        // The following condition may be even more generic, but targetDate will typically align with the event so perhaps unnecessary:
+        // if (endDate != null && targetDate.compareTo(endDate) >= 0 && targetDate.isBefore(cutoffStartDt)) { ...}
+        if (endDate != null && targetDate.compareTo(endDate) == 0) {
+            effectiveEndDate = targetDate;
+            return;
+        }
+
+        final LocalDate cutoffStartDt = inArrearGreedy ? startDate : firstBillingCycleDate;
+        if (targetDate.isBefore(cutoffStartDt)) {
             // Nothing to bill for, hasSomethingToBill will return false
             effectiveEndDate = null;
             return;
+
         }
 
         if (endDate != null && endDate.isBefore(firstBillingCycleDate)) {
@@ -131,17 +160,20 @@ public class BillingIntervalDetail {
 
         int numberOfPeriods = 0;
         LocalDate proposedDate = firstBillingCycleDate;
-        LocalDate nextProposedDate = InvoiceDateUtils.advanceByNPeriods(firstBillingCycleDate, billingPeriod, numberOfPeriods);
-
+        LocalDate nextProposedDate = getFutureBillingDateFor(numberOfPeriods);
         while (!nextProposedDate.isAfter(targetDate)) {
             proposedDate = nextProposedDate;
-            nextProposedDate = InvoiceDateUtils.advanceByNPeriods(firstBillingCycleDate, billingPeriod, numberOfPeriods);
             numberOfPeriods += 1;
+            nextProposedDate = getFutureBillingDateFor(numberOfPeriods);
         }
-        proposedDate = BillCycleDayCalculator.alignProposedBillCycleDate(proposedDate, billingCycleDay, billingPeriod);
 
+        if (inArrearGreedy && !proposedDate.isEqual(targetDate)) {
+            proposedDate = nextProposedDate;
+        }
+
+        final LocalDate cutoffEndDt = inArrearGreedy ? nextProposedDate : targetDate;
         // We honor the endDate as long as it does not go beyond our targetDate (by construction this cannot be after the nextProposedDate neither.
-        if (endDate != null && !endDate.isAfter(targetDate)) {
+        if (endDate != null && !endDate.isAfter(cutoffEndDt)) {
             effectiveEndDate = endDate;
         } else {
             effectiveEndDate = proposedDate;
@@ -165,7 +197,7 @@ public class BillingIntervalDetail {
         LocalDate proposedDate = firstBillingCycleDate;
 
         while (!proposedDate.isAfter(targetDate)) {
-            proposedDate = InvoiceDateUtils.advanceByNPeriods(firstBillingCycleDate, billingPeriod, numberOfPeriods);
+            proposedDate = getFutureBillingDateFor(numberOfPeriods);
             numberOfPeriods += 1;
         }
         proposedDate = BillCycleDayCalculator.alignProposedBillCycleDate(proposedDate, billingCycleDay, billingPeriod);
@@ -190,7 +222,7 @@ public class BillingIntervalDetail {
         LocalDate proposedDate = firstBillingCycleDate;
         int numberOfPeriods = 0;
         while (!proposedDate.isAfter(effectiveEndDate)) {
-            proposedDate = InvoiceDateUtils.advanceByNPeriods(firstBillingCycleDate, billingPeriod, numberOfPeriods);
+            proposedDate = getFutureBillingDateFor(numberOfPeriods);
             numberOfPeriods += 1;
         }
 

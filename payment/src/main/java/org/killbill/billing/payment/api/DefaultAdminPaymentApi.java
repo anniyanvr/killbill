@@ -20,7 +20,7 @@ package org.killbill.billing.payment.api;
 import java.util.List;
 
 import javax.annotation.Nullable;
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.killbill.billing.callcontext.InternalCallContext;
 import org.killbill.billing.payment.core.PaymentTransactionInfoPluginConverter;
@@ -32,9 +32,6 @@ import org.killbill.billing.payment.dao.PaymentDao;
 import org.killbill.billing.util.callcontext.CallContext;
 import org.killbill.billing.util.callcontext.InternalCallContextFactory;
 import org.killbill.billing.util.config.definition.PaymentConfig;
-
-import com.google.common.base.Predicate;
-import com.google.common.collect.Iterables;
 
 public class DefaultAdminPaymentApi extends DefaultApiBase implements AdminPaymentApi {
 
@@ -133,17 +130,13 @@ public class DefaultAdminPaymentApi extends DefaultApiBase implements AdminPayme
 
         // If there is a payment attempt associated with that transaction, we need to update it as well
         final List<PaymentAttemptModelDao> paymentAttemptsModelDao = paymentDao.getPaymentAttemptByTransactionExternalKey(paymentTransaction.getExternalKey(), internalCallContext);
-        final PaymentAttemptModelDao paymentAttemptModelDao = Iterables.<PaymentAttemptModelDao>tryFind(paymentAttemptsModelDao,
-                                                                                                        new Predicate<PaymentAttemptModelDao>() {
-                                                                                                            @Override
-                                                                                                            public boolean apply(final PaymentAttemptModelDao input) {
-                                                                                                                return paymentTransaction.getId().equals(input.getTransactionId());
-                                                                                                            }
-                                                                                                        }).orNull();
-        if (paymentAttemptModelDao != null) {
-            // We can re-use the logic from IncompletePaymentAttemptTask as it is doing very similar work (i.e. run the completion part of
-            // the state machine to call the plugins and update the attempt in the right terminal state)
-            incompletePaymentAttemptTask.doIteration(paymentAttemptModelDao, true);
-        }
+        paymentAttemptsModelDao.stream()
+                .filter(payAttemptModelDao -> paymentTransaction.getId().equals(payAttemptModelDao.getTransactionId()))
+                .findFirst()
+                .ifPresent(payAttemptModelDao -> {
+                    // We can re-use the logic from IncompletePaymentAttemptTask as it is doing very similar work (i.e. run the completion part of
+                    // the state machine to call the plugins and update the attempt in the right terminal state)
+                    incompletePaymentAttemptTask.doIteration(payAttemptModelDao, true, properties);
+                });
     }
 }

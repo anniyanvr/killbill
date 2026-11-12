@@ -19,6 +19,7 @@ package org.killbill.billing.beatrix.integration;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import org.joda.time.LocalDate;
@@ -36,10 +37,7 @@ import org.killbill.billing.catalog.api.ProductCategory;
 import org.killbill.billing.entitlement.api.DefaultEntitlement;
 import org.killbill.billing.entitlement.api.DefaultEntitlementSpecifier;
 import org.killbill.billing.invoice.api.InvoiceItemType;
-import org.killbill.billing.payment.api.PluginProperty;
 import org.testng.annotations.Test;
-
-import com.google.common.collect.ImmutableList;
 
 public class TestWithPriceOverride extends TestIntegrationBase {
 
@@ -59,7 +57,7 @@ public class TestWithPriceOverride extends TestIntegrationBase {
         final DefaultEntitlement bpSubscription = createBaseEntitlementWithPriceOverrideAndCheckForCompletion(account.getId(), "bundleKey", "Shotgun", ProductCategory.BASE, BillingPeriod.MONTHLY, overrides, NextEvent.CREATE, NextEvent.BLOCK, NextEvent.INVOICE, NextEvent.PAYMENT, NextEvent.INVOICE_PAYMENT);
         // Check bundle after BP got created otherwise we get an error from auditApi.
         subscriptionChecker.checkSubscriptionCreated(bpSubscription.getId(), internalCallContext);
-        invoiceChecker.checkInvoice(account.getId(), 1, callContext, new ExpectedInvoiceItemCheck(clock.getUTCToday(), null, InvoiceItemType.FIXED, new BigDecimal("1")));
+        invoiceChecker.checkInvoice(account.getId(), 1, callContext, new ExpectedInvoiceItemCheck(clock.getUTCToday(), clock.getUTCToday().plusMonths(1), InvoiceItemType.FIXED, new BigDecimal("1")));
     }
 
     @Test(groups = "slow")
@@ -78,7 +76,7 @@ public class TestWithPriceOverride extends TestIntegrationBase {
         final DefaultEntitlement bpSubscription = createBaseEntitlementWithPriceOverrideAndCheckForCompletion(account.getId(), "bundleKey", "Shotgun", ProductCategory.BASE, BillingPeriod.MONTHLY, overrides, NextEvent.CREATE, NextEvent.BLOCK, NextEvent.INVOICE);
         // Check bundle after BP got created otherwise we get an error from auditApi.
         subscriptionChecker.checkSubscriptionCreated(bpSubscription.getId(), internalCallContext);
-        invoiceChecker.checkInvoice(account.getId(), 1, callContext, new ExpectedInvoiceItemCheck(new LocalDate(2012, 4, 1), null, InvoiceItemType.FIXED, new BigDecimal("0")));
+        invoiceChecker.checkInvoice(account.getId(), 1, callContext, new ExpectedInvoiceItemCheck(new LocalDate(2012, 4, 1), new LocalDate(2012, 5, 1), InvoiceItemType.FIXED, new BigDecimal("0")));
 
         busHandler.pushExpectedEvents(NextEvent.PHASE, NextEvent.INVOICE, NextEvent.PAYMENT, NextEvent.INVOICE_PAYMENT);
         clock.addDays(30);
@@ -106,7 +104,7 @@ public class TestWithPriceOverride extends TestIntegrationBase {
         final DefaultEntitlement bpSubscription = createBaseEntitlementAndCheckForCompletion(account.getId(), "bundleKey", "Shotgun", ProductCategory.BASE, BillingPeriod.MONTHLY, NextEvent.CREATE, NextEvent.BLOCK, NextEvent.INVOICE);
         // Check bundle after BP got created otherwise we get an error from auditApi.
         subscriptionChecker.checkSubscriptionCreated(bpSubscription.getId(), internalCallContext);
-        invoiceChecker.checkInvoice(account.getId(), 1, callContext, new ExpectedInvoiceItemCheck(new LocalDate(2012, 4, 1), null, InvoiceItemType.FIXED, new BigDecimal("0")));
+        invoiceChecker.checkInvoice(account.getId(), 1, callContext, new ExpectedInvoiceItemCheck(new LocalDate(2012, 4, 1), new LocalDate(2012, 5, 1), InvoiceItemType.FIXED, new BigDecimal("0")));
 
         busHandler.pushExpectedEvents(NextEvent.PHASE, NextEvent.INVOICE, NextEvent.PAYMENT, NextEvent.INVOICE_PAYMENT);
         clock.addDays(30);
@@ -119,7 +117,7 @@ public class TestWithPriceOverride extends TestIntegrationBase {
 
         busHandler.pushExpectedEvents(NextEvent.CHANGE, NextEvent.INVOICE, NextEvent.PAYMENT, NextEvent.INVOICE_PAYMENT);
         final PlanPhaseSpecifier spec = new PlanPhaseSpecifier("Shotgun", BillingPeriod.MONTHLY, PriceListSet.DEFAULT_PRICELIST_NAME);
-        bpSubscription.changePlanOverrideBillingPolicy(new DefaultEntitlementSpecifier(spec, null, null, overrides), null, BillingActionPolicy.IMMEDIATE, ImmutableList.<PluginProperty>of(), callContext);
+        bpSubscription.changePlanOverrideBillingPolicy(new DefaultEntitlementSpecifier(spec, null, null, null, overrides), null, BillingActionPolicy.IMMEDIATE, Collections.emptyList(), callContext);
         assertListenerStatus();
 
         invoiceChecker.checkInvoice(account.getId(), 3, callContext,
@@ -148,7 +146,7 @@ public class TestWithPriceOverride extends TestIntegrationBase {
         final DefaultEntitlement bpSubscription = createBaseEntitlementAndCheckForCompletion(account.getId(), "bundleKey", "Shotgun", ProductCategory.BASE, BillingPeriod.MONTHLY, NextEvent.CREATE, NextEvent.BLOCK, NextEvent.INVOICE);
         // Check bundle after BP got created otherwise we get an error from auditApi.
         subscriptionChecker.checkSubscriptionCreated(bpSubscription.getId(), internalCallContext);
-        invoiceChecker.checkInvoice(account.getId(), 1, callContext, new ExpectedInvoiceItemCheck(new LocalDate(2012, 4, 1), null, InvoiceItemType.FIXED, new BigDecimal("0")));
+        invoiceChecker.checkInvoice(account.getId(), 1, callContext, new ExpectedInvoiceItemCheck(new LocalDate(2012, 4, 1), new LocalDate(2012, 5, 1), InvoiceItemType.FIXED, new BigDecimal("0")));
 
         // Create the add-on
         final DefaultEntitlement aoEntitlement = addAOEntitlementAndCheckForCompletion(bpSubscription.getBundleId(), "Telescopic-Scope", ProductCategory.ADD_ON, BillingPeriod.MONTHLY,
@@ -167,7 +165,7 @@ public class TestWithPriceOverride extends TestIntegrationBase {
 
         busHandler.pushExpectedEvents(NextEvent.CHANGE, NextEvent.INVOICE, NextEvent.PAYMENT, NextEvent.INVOICE_PAYMENT);
         final PlanPhaseSpecifier spec = new PlanPhaseSpecifier("Telescopic-Scope", BillingPeriod.MONTHLY, PriceListSet.DEFAULT_PRICELIST_NAME);
-        aoEntitlement.changePlanOverrideBillingPolicy(new DefaultEntitlementSpecifier(spec, null, null, overrides), null, BillingActionPolicy.IMMEDIATE, ImmutableList.<PluginProperty>of(), callContext);
+        aoEntitlement.changePlanOverrideBillingPolicy(new DefaultEntitlementSpecifier(spec, null, null, null, overrides), null, BillingActionPolicy.IMMEDIATE, Collections.emptyList(), callContext);
         assertListenerStatus();
     }
 }

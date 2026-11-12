@@ -1,7 +1,8 @@
 /*
  * Copyright 2010-2014 Ning, Inc.
  * Copyright 2014-2020 Groupon, Inc
- * Copyright 2014-2020 The Billing Project, LLC
+ * Copyright 2020-2022 Equinix, Inc
+ * Copyright 2014-2022 The Billing Project, LLC
  *
  * The Billing Project licenses this file to you under the Apache License, version 2.0
  * (the "License"); you may not use this file except in compliance with the
@@ -20,30 +21,38 @@ package org.killbill.billing.jaxrs.resources;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutput;
 import java.io.ObjectOutputStream;
+import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
 import javax.annotation.Nullable;
-import javax.inject.Inject;
-import javax.inject.Singleton;
-import javax.servlet.http.HttpServletRequest;
-import javax.ws.rs.Consumes;
-import javax.ws.rs.DELETE;
-import javax.ws.rs.GET;
-import javax.ws.rs.HeaderParam;
-import javax.ws.rs.POST;
-import javax.ws.rs.Path;
-import javax.ws.rs.Produces;
-import javax.ws.rs.QueryParam;
-import javax.ws.rs.core.Response;
-import javax.ws.rs.core.Response.Status;
-import javax.ws.rs.core.UriInfo;
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DELETE;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.HeaderParam;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.Response.Status;
+import jakarta.ws.rs.core.StreamingOutput;
+import jakarta.ws.rs.core.UriInfo;
+import jakarta.xml.bind.JAXBContext;
+import jakarta.xml.bind.JAXBException;
+import jakarta.xml.bind.Marshaller;
 
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
@@ -52,6 +61,7 @@ import org.killbill.billing.account.api.AccountUserApi;
 import org.killbill.billing.catalog.api.BillingPeriod;
 import org.killbill.billing.catalog.api.CatalogApiException;
 import org.killbill.billing.catalog.api.CatalogUserApi;
+import org.killbill.billing.catalog.api.CatalogValidation;
 import org.killbill.billing.catalog.api.Currency;
 import org.killbill.billing.catalog.api.CurrencyValueNull;
 import org.killbill.billing.catalog.api.Listing;
@@ -73,6 +83,7 @@ import org.killbill.billing.jaxrs.json.CatalogJson.PhaseJson;
 import org.killbill.billing.jaxrs.json.CatalogJson.PlanJson;
 import org.killbill.billing.jaxrs.json.CatalogJson.PriceListJson;
 import org.killbill.billing.jaxrs.json.CatalogJson.ProductJson;
+import org.killbill.billing.jaxrs.json.CatalogValidationJson;
 import org.killbill.billing.jaxrs.json.PlanDetailJson;
 import org.killbill.billing.jaxrs.json.SimplePlanJson;
 import org.killbill.billing.jaxrs.util.Context;
@@ -86,20 +97,22 @@ import org.killbill.billing.util.api.TagUserApi;
 import org.killbill.billing.util.callcontext.CallContext;
 import org.killbill.billing.util.callcontext.TenantContext;
 import org.killbill.clock.Clock;
-import org.killbill.commons.metrics.TimedResource;
-import org.killbill.xmlloader.XMLWriter;
+import org.killbill.commons.metrics.api.annotation.TimedResource;
 
-import io.swagger.annotations.Api;
-import io.swagger.annotations.ApiOperation;
-import io.swagger.annotations.ApiResponse;
-import io.swagger.annotations.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Schema;
 
-import static javax.ws.rs.core.MediaType.APPLICATION_JSON;
-import static javax.ws.rs.core.MediaType.TEXT_XML;
+import static jakarta.ws.rs.core.MediaType.APPLICATION_JSON;
+import static jakarta.ws.rs.core.MediaType.TEXT_XML;
 
 @Singleton
 @Path(JaxrsResource.CATALOG_PATH)
-@Api(value = JaxrsResource.CATALOG_PATH, description = "Catalog information", tags = "Catalog")
+@Tag(name = "Catalog", description = "Catalog information")
 public class CatalogResource extends JaxRsResourceBase {
 
     private final CatalogUserApi catalogUserApi;
@@ -130,11 +143,11 @@ public class CatalogResource extends JaxRsResourceBase {
     @TimedResource
     @GET
     @Produces(TEXT_XML)
-    @ApiOperation(value = "Retrieve the full catalog as XML", response = String.class, hidden = true)
-    @ApiResponses(value = {})
+    @Operation(summary = "Retrieve the full catalog as XML", hidden = true)
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "successful operation", content = @Content(mediaType = TEXT_XML, schema = @Schema(implementation = String.class)))})
     public Response getCatalogXmlOriginal(@QueryParam(QUERY_REQUESTED_DT) final String requestedDate,
                                           @QueryParam(QUERY_ACCOUNT_ID) final UUID accountId,
-                                          @javax.ws.rs.core.Context final HttpServletRequest request) throws Exception {
+                                          @jakarta.ws.rs.core.Context final HttpServletRequest request) throws Exception {
         final TenantContext tenantContext = accountId != null ?
                                             context.createTenantContextWithAccountId(accountId, request) :
                                             context.createTenantContextNoAccountId(request);
@@ -148,7 +161,7 @@ public class CatalogResource extends JaxRsResourceBase {
         if (catalogDateVersion == null) {
             catalog = versionedcatalog;
         } else {
-            // We have no other choice than to deep copy the catalog...
+            // We have no other choice than to deep copy the catalog (JAXB can't handle interfaces)...
             final ByteArrayOutputStream bos = new ByteArrayOutputStream();
             final ObjectOutput out = new ObjectOutputStream(bos);
             out.writeObject(versionedcatalog);
@@ -161,34 +174,50 @@ public class CatalogResource extends JaxRsResourceBase {
 
         // This assumes serializableClass has the right JAXB annotations
         final Class serializableClass = catalog.getClass();
-        final String result = XMLWriter.writeXML(catalog, serializableClass);
 
-        return Response.status(Status.OK).entity(result).build();
+        final JAXBContext context = JAXBContext.newInstance(serializableClass);
+        final Marshaller marshaller = context.createMarshaller();
+        marshaller.setProperty(Marshaller.JAXB_FORMATTED_OUTPUT, Boolean.TRUE);
+
+        final StreamingOutput json = new StreamingOutput() {
+            @Override
+            public void write(final OutputStream output) throws IOException, WebApplicationException {
+                try {
+                    marshaller.marshal(catalog, output);
+                } catch (final JAXBException e) {
+                    throw new IOException(e);
+                }
+            }
+        };
+
+        return Response.status(Status.OK)
+                       .entity(json)
+                       .build();
     }
 
     @TimedResource
     @Path("/xml")
     @GET
     @Produces(TEXT_XML)
-    @ApiOperation(value = "Retrieve the full catalog as XML", response = String.class)
-    @ApiResponses(value = {})
+    @Operation(summary = "Retrieve the full catalog as XML")
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "successful operation", content = @Content(mediaType = TEXT_XML, schema = @Schema(implementation = String.class)))})
     public Response getCatalogXml(@QueryParam(QUERY_REQUESTED_DT) final String requestedDate,
                                   @QueryParam(QUERY_ACCOUNT_ID) final UUID accountId,
-                                  @javax.ws.rs.core.Context final HttpServletRequest request) throws Exception {
+                                  @jakarta.ws.rs.core.Context final HttpServletRequest request) throws Exception {
         return getCatalogXmlOriginal(requestedDate, accountId, request);
     }
 
     @TimedResource
     @POST
     @Consumes(TEXT_XML)
-    @ApiOperation(value = "Upload the full catalog as XML", hidden = true)
+    @Operation(summary = "Upload the full catalog as XML", hidden = true)
     @ApiResponses(value = {})
     public Response uploadCatalogXmlOriginal(final String catalogXML,
                                              @HeaderParam(HDR_CREATED_BY) final String createdBy,
                                              @HeaderParam(HDR_REASON) final String reason,
                                              @HeaderParam(HDR_COMMENT) final String comment,
-                                             @javax.ws.rs.core.Context final HttpServletRequest request,
-                                             @javax.ws.rs.core.Context final UriInfo uriInfo) throws Exception {
+                                             @jakarta.ws.rs.core.Context final HttpServletRequest request,
+                                             @jakarta.ws.rs.core.Context final UriInfo uriInfo) throws Exception {
         final CallContext callContext = context.createCallContextNoAccountId(createdBy, reason, comment, request);
         catalogUserApi.uploadCatalog(catalogXML, callContext);
         return uriBuilder.buildResponse(uriInfo, CatalogResource.class, null, null, request);
@@ -198,25 +227,49 @@ public class CatalogResource extends JaxRsResourceBase {
     @POST
     @Path("/xml")
     @Consumes(TEXT_XML)
-    @ApiOperation(value = "Upload the full catalog as XML", response = String.class)
-    @ApiResponses(value = {@ApiResponse(code = 201, message = "Catalog XML created successfully")})
+    @Operation(summary = "Upload the full catalog as XML")
+    // Server returns 201 with no body (only a Location header), but the 0.24.x swagger spec
+    // declared the response as {type: "string"}. Generated clients from that spec return a String,
+    // and existing user code may call .isEmpty() on it. Dropping the schema would change the
+    // generated return type to void/null, breaking backward compatibility with a NPE.
+    // We keep the string schema to preserve the generated client contract.
+    @ApiResponses(value = {@ApiResponse(responseCode = "201", description = "Catalog XML created successfully", content = @Content(mediaType = APPLICATION_JSON, schema = @Schema(type = "string")))})
     public Response uploadCatalogXml(final String catalogXML,
                                      @HeaderParam(HDR_CREATED_BY) final String createdBy,
                                      @HeaderParam(HDR_REASON) final String reason,
                                      @HeaderParam(HDR_COMMENT) final String comment,
-                                     @javax.ws.rs.core.Context final HttpServletRequest request,
-                                     @javax.ws.rs.core.Context final UriInfo uriInfo) throws Exception {
+                                     @jakarta.ws.rs.core.Context final HttpServletRequest request,
+                                     @jakarta.ws.rs.core.Context final UriInfo uriInfo) throws Exception {
         return uploadCatalogXmlOriginal(catalogXML, createdBy, reason, comment, request, uriInfo);
+    }
+
+    @TimedResource
+    @POST
+    @Path("/xml/validate")
+    @Consumes(TEXT_XML)
+    @Produces(APPLICATION_JSON)
+    @Operation(summary = "Validate a XML catalog")
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "successful operation", content = @Content(mediaType = "application/json", schema = @Schema(implementation = CatalogValidationJson.class)))})
+    public Response validateCatalogXml(final String catalogXML,
+                                       @HeaderParam(HDR_CREATED_BY) final String createdBy,
+                                       @HeaderParam(HDR_REASON) final String reason,
+                                       @HeaderParam(HDR_COMMENT) final String comment,
+                                       @jakarta.ws.rs.core.Context final HttpServletRequest request,
+                                       @jakarta.ws.rs.core.Context final UriInfo uriInfo) throws Exception {
+        final CallContext callContext = context.createCallContextNoAccountId(createdBy, reason, comment, request);
+        final CatalogValidation catalogValidation = catalogUserApi.validateCatalog(catalogXML, callContext);
+        final CatalogValidationJson catalogValidationJson = new CatalogValidationJson(catalogValidation);
+        return Response.status(Status.OK).entity(catalogValidationJson).build();
     }
 
     @TimedResource
     @GET
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Retrieve the catalog as JSON", responseContainer = "List", response = CatalogJson.class)
-    @ApiResponses(value = {})
+    @Operation(summary = "Retrieve the catalog as JSON")
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "successful operation", content = @Content(mediaType = "application/json", array = @ArraySchema(schema = @Schema(implementation = CatalogJson.class))))})
     public Response getCatalogJson(@QueryParam(QUERY_REQUESTED_DT) final String requestedDate,
                                    @QueryParam(QUERY_ACCOUNT_ID) final UUID accountId,
-                                   @javax.ws.rs.core.Context final HttpServletRequest request) throws Exception {
+                                   @jakarta.ws.rs.core.Context final HttpServletRequest request) throws Exception {
 
         final TenantContext tenantContext = accountId != null ?
                                             context.createTenantContextWithAccountId(accountId, request) :
@@ -244,10 +297,10 @@ public class CatalogResource extends JaxRsResourceBase {
     @GET
     @Path("/versions")
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Retrieve a list of catalog versions", response = DateTime.class, responseContainer = "List")
-    @ApiResponses(value = {})
+    @Operation(summary = "Retrieve a list of catalog versions")
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "successful operation", content = @Content(mediaType = "application/json", array = @ArraySchema(schema = @Schema(implementation = DateTime.class))))})
     public Response getCatalogVersions(@QueryParam(QUERY_ACCOUNT_ID) final UUID accountId,
-                                       @javax.ws.rs.core.Context final HttpServletRequest request) throws Exception {
+                                       @jakarta.ws.rs.core.Context final HttpServletRequest request) throws Exception {
         final TenantContext tenantContext = accountId != null ?
                                             context.createTenantContextWithAccountId(accountId, request) :
                                             context.createTenantContextNoAccountId(request);
@@ -279,12 +332,12 @@ public class CatalogResource extends JaxRsResourceBase {
     @GET
     @Path("/availableAddons")
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Retrieve available add-ons for a given product", response = PlanDetailJson.class, responseContainer = "List")
-    @ApiResponses(value = {})
+    @Operation(summary = "Retrieve available add-ons for a given product")
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "successful operation", content = @Content(mediaType = "application/json", array = @ArraySchema(schema = @Schema(implementation = PlanDetailJson.class))))})
     public Response getAvailableAddons(@QueryParam("baseProductName") final String baseProductName,
                                        @Nullable @QueryParam("priceListName") final String priceListName,
                                        @QueryParam(QUERY_ACCOUNT_ID) final UUID accountId,
-                                       @javax.ws.rs.core.Context final HttpServletRequest request) throws CatalogApiException {
+                                       @jakarta.ws.rs.core.Context final HttpServletRequest request) throws CatalogApiException {
 
         final TenantContext tenantContext = accountId != null ?
                                             context.createTenantContextWithAccountId(accountId, request) :
@@ -303,15 +356,18 @@ public class CatalogResource extends JaxRsResourceBase {
     @GET
     @Path("/availableBasePlans")
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Retrieve available base plans", response = PlanDetailJson.class, responseContainer = "List")
-    @ApiResponses(value = {})
+    @Operation(summary = "Retrieve available base plans")
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "successful operation", content = @Content(mediaType = "application/json", array = @ArraySchema(schema = @Schema(implementation = PlanDetailJson.class))))})
     public Response getAvailableBasePlans(@QueryParam(QUERY_ACCOUNT_ID) final UUID accountId,
-                                          @javax.ws.rs.core.Context final HttpServletRequest request) throws CatalogApiException {
+                                          @jakarta.ws.rs.core.Context final HttpServletRequest request) throws CatalogApiException {
         final TenantContext tenantContext = accountId != null ?
                                             context.createTenantContextWithAccountId(accountId, request) :
                                             context.createTenantContextNoAccountId(request);
 
         final StaticCatalog catalog = catalogUserApi.getCurrentCatalog(catalogName, tenantContext);
+        if(catalog == null || catalog.getAvailableBasePlanListings() == null) {
+            return Response.status(Status.OK).entity(Collections.emptyList()).build();
+        }
         final List<Listing> listings = catalog.getAvailableBasePlanListings();
         final List<PlanDetailJson> details = new ArrayList<PlanDetailJson>();
         for (final Listing listing : listings) {
@@ -324,11 +380,11 @@ public class CatalogResource extends JaxRsResourceBase {
     @GET
     @Path("/plan")
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Retrieve plan for a given subscription and date", response = PlanJson.class)
-    @ApiResponses(value = {})
+    @Operation(summary = "Retrieve plan for a given subscription and date")
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "successful operation", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PlanJson.class)))})
     public Response getPlanForSubscriptionAndDate(@QueryParam("subscriptionId") final UUID subscriptionId,
                                                   @QueryParam("requestedDate") final String requestedDateString,
-                                                  @javax.ws.rs.core.Context final HttpServletRequest request) throws SubscriptionApiException, CurrencyValueNull {
+                                                  @jakarta.ws.rs.core.Context final HttpServletRequest request) throws SubscriptionApiException, CurrencyValueNull {
         verifyNonNullOrEmpty(subscriptionId, "Subscription id needs to be specified");
 
         final SubscriptionEvent lastEventBeforeRequestedDate = getLastEventBeforeDate(subscriptionId, requestedDateString, request);
@@ -350,11 +406,11 @@ public class CatalogResource extends JaxRsResourceBase {
     @GET
     @Path("/phase")
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Retrieve phase for a given subscription and date", response = PhaseJson.class)
-    @ApiResponses(value = {})
+    @Operation(summary = "Retrieve phase for a given subscription and date")
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "successful operation", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PhaseJson.class)))})
     public Response getPhaseForSubscriptionAndDate(@QueryParam("subscriptionId") final UUID subscriptionId,
                                                    @QueryParam("requestedDate") final String requestedDateString,
-                                                   @javax.ws.rs.core.Context final HttpServletRequest request) throws SubscriptionApiException, CurrencyValueNull {
+                                                   @jakarta.ws.rs.core.Context final HttpServletRequest request) throws SubscriptionApiException, CurrencyValueNull {
         verifyNonNullOrEmpty(subscriptionId, "Subscription id needs to be specified");
 
         final SubscriptionEvent lastEventBeforeRequestedDate = getLastEventBeforeDate(subscriptionId, requestedDateString, request);
@@ -376,11 +432,11 @@ public class CatalogResource extends JaxRsResourceBase {
     @GET
     @Path("/product")
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Retrieve product for a given subscription and date", response = ProductJson.class)
-    @ApiResponses(value = {})
+    @Operation(summary = "Retrieve product for a given subscription and date")
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "successful operation", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ProductJson.class)))})
     public Response getProductForSubscriptionAndDate(@QueryParam("subscriptionId") final UUID subscriptionId,
                                                      @QueryParam("requestedDate") final String requestedDateString,
-                                                     @javax.ws.rs.core.Context final HttpServletRequest request) throws SubscriptionApiException {
+                                                     @jakarta.ws.rs.core.Context final HttpServletRequest request) throws SubscriptionApiException {
         verifyNonNullOrEmpty(subscriptionId, "Subscription id needs to be specified");
 
         final SubscriptionEvent lastEventBeforeRequestedDate = getLastEventBeforeDate(subscriptionId, requestedDateString, request);
@@ -402,11 +458,11 @@ public class CatalogResource extends JaxRsResourceBase {
     @GET
     @Path("/priceList")
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Retrieve priceList for a given subscription and date", response = PriceListJson.class)
-    @ApiResponses(value = {})
+    @Operation(summary = "Retrieve priceList for a given subscription and date")
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "successful operation", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PriceListJson.class)))})
     public Response getPriceListForSubscriptionAndDate(@QueryParam("subscriptionId") final UUID subscriptionId,
                                                        @QueryParam("requestedDate") final String requestedDateString,
-                                                       @javax.ws.rs.core.Context final HttpServletRequest request) throws SubscriptionApiException {
+                                                       @jakarta.ws.rs.core.Context final HttpServletRequest request) throws SubscriptionApiException {
         verifyNonNullOrEmpty(subscriptionId, "Subscription id needs to be specified");
 
         final SubscriptionEvent lastEventBeforeRequestedDate = getLastEventBeforeDate(subscriptionId, requestedDateString, request);
@@ -429,19 +485,17 @@ public class CatalogResource extends JaxRsResourceBase {
         final DateTime requestedDateTime = requestedDateString != null ?
                                            DATE_TIME_FORMATTER.parseDateTime(requestedDateString).toDateTime(DateTimeZone.UTC) :
                                            clock.getUTCNow();
-        final LocalDate requestedDate = requestedDateTime.toLocalDate();
-
-        final Subscription subscription = subscriptionApi.getSubscriptionForEntitlementId(subscriptionId, tenantContext);
+        final Subscription subscription = subscriptionApi.getSubscriptionForEntitlementId(subscriptionId, false, tenantContext);
         SubscriptionEvent lastEventBeforeRequestedDate = null;
         for (final SubscriptionEvent subscriptionEvent : subscription.getSubscriptionEvents()) {
             if (lastEventBeforeRequestedDate == null) {
-                if (subscriptionEvent.getEffectiveDate().compareTo(requestedDate) > 0) {
+                if (subscriptionEvent.getEffectiveDate().compareTo(requestedDateTime) > 0) {
                     // requestedDate too far in the past, before subscription start date
                     return null;
                 }
                 lastEventBeforeRequestedDate = subscriptionEvent;
             }
-            if (subscriptionEvent.getEffectiveDate().compareTo(requestedDate) > 0) {
+            if (subscriptionEvent.getEffectiveDate().compareTo(requestedDateTime) > 0) {
                 break;
             } else {
                 lastEventBeforeRequestedDate = subscriptionEvent;
@@ -456,14 +510,14 @@ public class CatalogResource extends JaxRsResourceBase {
     @Path("/simplePlan")
     @Consumes(APPLICATION_JSON)
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Add a simple plan entry in the current version of the catalog", response = String.class)
-    @ApiResponses(value = {@ApiResponse(code = 201, message = "Created new plan successfully")})
+    @Operation(summary = "Add a simple plan entry in the current version of the catalog")
+    @ApiResponses(value = {@ApiResponse(responseCode = "201", description = "Created new plan successfully", content = @Content(mediaType = "application/json", schema = @Schema(implementation = String.class)))})
     public Response addSimplePlan(final SimplePlanJson simplePlan,
                                   @HeaderParam(HDR_CREATED_BY) final String createdBy,
                                   @HeaderParam(HDR_REASON) final String reason,
                                   @HeaderParam(HDR_COMMENT) final String comment,
-                                  @javax.ws.rs.core.Context final HttpServletRequest request,
-                                  @javax.ws.rs.core.Context final UriInfo uriInfo) throws Exception {
+                                  @jakarta.ws.rs.core.Context final HttpServletRequest request,
+                                  @jakarta.ws.rs.core.Context final UriInfo uriInfo) throws Exception {
         final CallContext callContext = context.createCallContextNoAccountId(createdBy, reason, comment, request);
 
         final SimplePlanDescriptor desc = new SimplePlanDescriptor() {
@@ -523,16 +577,15 @@ public class CatalogResource extends JaxRsResourceBase {
     }
 
     @DELETE
-    @ApiOperation(value = "Delete all versions for a per tenant catalog")
-    @ApiResponses(value = {@ApiResponse(code = 204, message = "Successful operation")})
+    @Operation(summary = "Delete all versions for a per tenant catalog")
+    @ApiResponses(value = {@ApiResponse(responseCode = "204", description = "Successful operation")})
     public Response deleteCatalog(@HeaderParam(HDR_CREATED_BY) final String createdBy,
                                   @HeaderParam(HDR_REASON) final String reason,
                                   @HeaderParam(HDR_COMMENT) final String comment,
-                                  @javax.ws.rs.core.Context final UriInfo uriInfo,
-                                  @javax.ws.rs.core.Context final HttpServletRequest request) throws TenantApiException, CatalogApiException {
+                                  @jakarta.ws.rs.core.Context final UriInfo uriInfo,
+                                  @jakarta.ws.rs.core.Context final HttpServletRequest request) throws TenantApiException, CatalogApiException {
         final CallContext callContext = context.createCallContextNoAccountId(createdBy, reason, comment, request);
         catalogUserApi.deleteCatalog(callContext);
         return Response.status(Status.NO_CONTENT).build();
     }
-
 }

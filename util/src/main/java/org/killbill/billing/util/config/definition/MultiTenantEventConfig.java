@@ -19,14 +19,14 @@ package org.killbill.billing.util.config.definition;
 
 import java.util.List;
 
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
+
 import org.killbill.billing.callcontext.InternalTenantContext;
 import org.killbill.billing.events.BusInternalEvent.BusInternalEventType;
 import org.killbill.billing.util.config.tenant.CacheConfig;
 import org.killbill.billing.util.config.tenant.MultiTenantConfigBase;
 import org.killbill.billing.util.glue.KillBillModule;
-
-import com.google.inject.Inject;
-import com.google.inject.name.Named;
 
 public class MultiTenantEventConfig extends MultiTenantConfigBase implements EventConfig {
 
@@ -34,7 +34,7 @@ public class MultiTenantEventConfig extends MultiTenantConfigBase implements Eve
 
     @Inject
     public MultiTenantEventConfig(@Named(KillBillModule.STATIC_CONFIG) final EventConfig staticConfig, final CacheConfig cacheConfig) {
-        super(cacheConfig);
+        super(staticConfig, cacheConfig);
         this.staticConfig = staticConfig;
     }
 

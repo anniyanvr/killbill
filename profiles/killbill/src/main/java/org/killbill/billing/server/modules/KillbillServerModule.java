@@ -18,7 +18,10 @@
 
 package org.killbill.billing.server.modules;
 
-import javax.servlet.ServletContext;
+import java.util.Collections;
+import java.util.Set;
+
+import jakarta.servlet.ServletContext;
 
 import org.killbill.billing.account.glue.DefaultAccountModule;
 import org.killbill.billing.beatrix.glue.BeatrixModule;
@@ -32,6 +35,7 @@ import org.killbill.billing.jaxrs.util.KillbillEventHandler;
 import org.killbill.billing.junction.glue.DefaultJunctionModule;
 import org.killbill.billing.osgi.api.Healthcheck;
 import org.killbill.billing.osgi.api.OSGIServiceRegistration;
+import org.killbill.billing.osgi.api.ServiceDiscoveryRegistry;
 import org.killbill.billing.overdue.glue.DefaultOverdueModule;
 import org.killbill.billing.payment.glue.PaymentModule;
 import org.killbill.billing.platform.api.KillbillConfigSource;
@@ -45,6 +49,7 @@ import org.killbill.billing.server.notifications.PushNotificationRetryService;
 import org.killbill.billing.subscription.glue.DefaultSubscriptionModule;
 import org.killbill.billing.tenant.glue.DefaultTenantModule;
 import org.killbill.billing.usage.glue.UsageModule;
+import org.killbill.billing.util.config.definition.JaxrsConfig;
 import org.killbill.billing.util.config.definition.NotificationConfig;
 import org.killbill.billing.util.email.templates.TemplateModule;
 import org.killbill.billing.util.features.KillbillFeatures;
@@ -76,14 +81,20 @@ import org.killbill.billing.util.optimizer.BusOptimizerOn;
 import org.killbill.clock.Clock;
 import org.killbill.clock.ClockMock;
 import org.killbill.commons.embeddeddb.EmbeddedDB;
-import org.skife.config.ConfigurationObjectFactory;
+import org.skife.config.AugmentedConfigurationObjectFactory;
 import org.skife.jdbi.v2.ResultSetMapperFactory;
+import org.skife.jdbi.v2.tweak.ArgumentFactory;
 import org.skife.jdbi.v2.tweak.ResultSetMapper;
+import org.skife.jdbi.v2.tweak.SQLLog;
+import org.skife.jdbi.v2.tweak.StatementBuilderFactory;
+import org.skife.jdbi.v2.tweak.StatementRewriter;
 
 import ch.qos.logback.classic.helpers.MDCInsertingServletFilter;
 import com.google.inject.TypeLiteral;
 import com.google.inject.multibindings.Multibinder;
+import com.google.inject.multibindings.OptionalBinder;
 import com.google.inject.name.Names;
+import com.google.inject.util.Providers;
 
 public class KillbillServerModule extends KillbillPlatformModule {
 
@@ -105,6 +116,15 @@ public class KillbillServerModule extends KillbillPlatformModule {
         configurePushNotification();
 
         bind(new TypeLiteral<OSGIServiceRegistration<Healthcheck>>() {}).to(DefaultHealthcheckPluginRegistry.class).asEagerSingleton();
+
+        // Needed because changes in KillbillHealthcheck from Guice @Inject(optional=true) to javax @Inject + @Nullable
+        OptionalBinder.newOptionalBinder(binder(), new TypeLiteral<Set<ServiceDiscoveryRegistry>>() {}).setDefault().toInstance(Collections.emptySet());
+
+        // Needed because changes in DBIProvider from Guice @Inject(optional=true) to javax @Inject + @Nullable
+        OptionalBinder.newOptionalBinder(binder(), new TypeLiteral<Set<ArgumentFactory>>() {}).setDefault().toInstance(Collections.emptySet());
+        OptionalBinder.newOptionalBinder(binder(), SQLLog.class).setDefault().toProvider(Providers.of(null));
+        OptionalBinder.newOptionalBinder(binder(), StatementBuilderFactory.class).setDefault().toProvider(Providers.of(null));
+        OptionalBinder.newOptionalBinder(binder(), StatementRewriter.class).setDefault().toProvider(Providers.of(null));
     }
 
     @Override
@@ -182,8 +202,12 @@ public class KillbillServerModule extends KillbillPlatformModule {
         install(new ExportModule(configSource));
         install(new GlobalLockerModule(configSource));
         install(new KillBillShiroAopModule(configSource));
-        install(new KillbillApiAopModule());
-        install(new JaxRSAopModule());
+
+        final AugmentedConfigurationObjectFactory factory = new AugmentedConfigurationObjectFactory(skifeConfigSource);
+        final JaxrsConfig jaxrsConfig = factory.build(JaxrsConfig.class);
+        install(new KillbillApiAopModule(jaxrsConfig));
+        install(new JaxRSAopModule(jaxrsConfig));
+
         install(new KillBillShiroWebModule(servletContext, skifeConfigSource));
         install(new NonEntityDaoModule(configSource));
         install(new PaymentModule(configSource));
@@ -206,7 +230,7 @@ public class KillbillServerModule extends KillbillPlatformModule {
     }
 
     protected void configurePushNotification() {
-        final ConfigurationObjectFactory factory = new ConfigurationObjectFactory(skifeConfigSource);
+        final AugmentedConfigurationObjectFactory factory = new AugmentedConfigurationObjectFactory(skifeConfigSource);
         final NotificationConfig notificationConfig = factory.build(NotificationConfig.class);
         bind(NotificationConfig.class).annotatedWith(Names.named(KillBillModule.STATIC_CONFIG)).toInstance(notificationConfig);
         bind(NotificationConfig.class).to(MultiTenantNotificationConfig.class).asEagerSingleton();

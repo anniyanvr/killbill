@@ -22,16 +22,18 @@ import java.io.Externalizable;
 import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectOutput;
+import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.stream.Collectors;
 
-import javax.xml.bind.annotation.XmlAccessType;
-import javax.xml.bind.annotation.XmlAccessorType;
-import javax.xml.bind.annotation.XmlAttribute;
-import javax.xml.bind.annotation.XmlElement;
-import javax.xml.bind.annotation.XmlElementWrapper;
-import javax.xml.bind.annotation.XmlID;
-import javax.xml.bind.annotation.XmlIDREF;
+import jakarta.xml.bind.annotation.XmlAccessType;
+import jakarta.xml.bind.annotation.XmlAccessorType;
+import jakarta.xml.bind.annotation.XmlAttribute;
+import jakarta.xml.bind.annotation.XmlElement;
+import jakarta.xml.bind.annotation.XmlElementWrapper;
+import jakarta.xml.bind.annotation.XmlID;
+import jakarta.xml.bind.annotation.XmlIDREF;
 
 import org.killbill.billing.catalog.api.Limit;
 import org.killbill.billing.catalog.api.Product;
@@ -43,6 +45,8 @@ import org.killbill.xmlloader.ValidationErrors;
 
 @XmlAccessorType(XmlAccessType.NONE)
 public class DefaultProduct extends ValidatingConfig<StandaloneCatalog> implements Product, Externalizable {
+
+    private static final boolean IGNORE_SELF_REFERENCING_PRODUCTS = Boolean.parseBoolean(System.getProperty("org.killbill.catalog.validation.ignoreSelfReferencingProducts", "false"));
 
     @XmlAttribute(required = true)
     @XmlID
@@ -83,7 +87,8 @@ public class DefaultProduct extends ValidatingConfig<StandaloneCatalog> implemen
 
     @Override
     public Collection<Product> getIncluded() {
-        return included.getEntries();
+        // Workaround for existing catalogs which have self-referencing products. Shouldn't happen anymore.
+        return included.getEntries().stream().filter(c -> c != this).collect(Collectors.toList());
     }
 
     @Override
@@ -93,7 +98,8 @@ public class DefaultProduct extends ValidatingConfig<StandaloneCatalog> implemen
 
     @Override
     public Collection<Product> getAvailable() {
-        return available.getEntries();
+        // Workaround for existing catalogs which have self-referencing products. Shouldn't happen anymore.
+        return available.getEntries().stream().filter(c -> c != this).collect(Collectors.toList());
     }
 
     public CatalogEntityCollection<Product> getCatalogEntityCollectionAvailable() {
@@ -157,7 +163,7 @@ public class DefaultProduct extends ValidatingConfig<StandaloneCatalog> implemen
     }
 
     @Override
-    public boolean compliesWithLimits(String unit, double value) {
+    public boolean compliesWithLimits(String unit, BigDecimal value) {
         Limit l = findLimit(unit);
         if (l == null) {
             return true;
@@ -183,6 +189,18 @@ public class DefaultProduct extends ValidatingConfig<StandaloneCatalog> implemen
         if (catalogName == null || !catalogName.equals(catalog.getCatalogName())) {
             errors.add(new ValidationError(String.format("Invalid catalogName for product '%s'", name), DefaultProduct.class, ""));
 
+        }
+        if (!IGNORE_SELF_REFERENCING_PRODUCTS) {
+            for (final Product includedProduct : included) {
+                if (includedProduct == this) {
+                    errors.add(new ValidationError("Product refers to itself in included section", DefaultProduct.class, name));
+                }
+            }
+            for (final Product availableProduct : available) {
+                if (availableProduct == this) {
+                    errors.add(new ValidationError("Product refers to itself in available section", DefaultProduct.class, name));
+                }
+            }
         }
         //TODO: MDW validation: inclusion and exclusion lists can only contain addon products
         //TODO: MDW validation: a given product can only be in, at most, one of inclusion and exclusion lists
@@ -253,10 +271,11 @@ public class DefaultProduct extends ValidatingConfig<StandaloneCatalog> implemen
         if (category != product.category) {
             return false;
         }
-        if (included != null ? !included.equals(product.included) : product.included != null) {
+        // See above as to why the getter is invoked
+        if (getIncluded() != null ? !getIncluded().equals(product.getIncluded()) : product.getIncluded() != null) {
             return false;
         }
-        if (available != null ? !available.equals(product.available) : product.available != null) {
+        if (getAvailable() != null ? !getAvailable().equals(product.getAvailable()) : product.getAvailable() != null) {
             return false;
         }
         // Probably incorrect - comparing Object[] arrays with Arrays.equals
@@ -271,8 +290,9 @@ public class DefaultProduct extends ValidatingConfig<StandaloneCatalog> implemen
     public int hashCode() {
         int result = name != null ? name.hashCode() : 0;
         result = 31 * result + (category != null ? category.hashCode() : 0);
-        result = 31 * result + (included != null ? included.hashCode() : 0);
-        result = 31 * result + (available != null ? available.hashCode() : 0);
+        // See above as to why the getter is invoked
+        result = 31 * result + (getIncluded() != null ? getIncluded().hashCode() : 0);
+        result = 31 * result + (getAvailable() != null ? getAvailable().hashCode() : 0);
         result = 31 * result + Arrays.hashCode(limits);
         result = 31 * result + (catalogName != null ? catalogName.hashCode() : 0);
         return result;

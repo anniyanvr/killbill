@@ -19,16 +19,17 @@ package org.killbill.billing.server.modules;
 
 import java.lang.reflect.Method;
 
-import javax.ws.rs.DELETE;
-import javax.ws.rs.GET;
-import javax.ws.rs.HEAD;
-import javax.ws.rs.OPTIONS;
-import javax.ws.rs.POST;
-import javax.ws.rs.PUT;
+import jakarta.ws.rs.DELETE;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.HEAD;
+import jakarta.ws.rs.OPTIONS;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.PUT;
 
 import org.aopalliance.intercept.MethodInterceptor;
 import org.aopalliance.intercept.MethodInvocation;
 import org.killbill.billing.jaxrs.resources.JaxrsResource;
+import org.killbill.billing.util.config.definition.JaxrsConfig;
 import org.killbill.billing.util.entity.dao.DBRouterUntyped;
 import org.killbill.billing.util.glue.KillbillApiAopModule;
 import org.killbill.commons.profiling.Profiling.WithProfilingCallback;
@@ -68,14 +69,26 @@ public class JaxRSAopModule extends AbstractModule {
         }
     };
 
+    private final boolean shouldGETUseROConnection;
+
+    public JaxRSAopModule(final JaxrsConfig jaxrsConfig) {
+        this.shouldGETUseROConnection = jaxrsConfig.shouldGETUseROConnection();
+    }
+
     @Override
     protected void configure() {
         bindInterceptor(Matchers.subclassesOf(JaxrsResource.class),
                         API_RESOURCE_METHOD_MATCHER,
-                        new JaxRsMethodInterceptor());
+                        new JaxRsMethodInterceptor(shouldGETUseROConnection));
     }
 
     public static class JaxRsMethodInterceptor implements MethodInterceptor {
+
+        private final boolean shouldGETUseROConnection;
+
+        public JaxRsMethodInterceptor(final boolean shouldGETUseROConnection) {
+            this.shouldGETUseROConnection = shouldGETUseROConnection;
+        }
 
         @Override
         public Object invoke(final MethodInvocation invocation) throws Throwable {
@@ -92,7 +105,7 @@ public class JaxRSAopModule extends AbstractModule {
         }
 
         private boolean isRODBIAllowed(final MethodInvocation invocation) {
-            return invocation.getMethod().getAnnotation(GET.class) != null;
+            return shouldGETUseROConnection && invocation.getMethod().getAnnotation(GET.class) != null;
         }
     }
 }

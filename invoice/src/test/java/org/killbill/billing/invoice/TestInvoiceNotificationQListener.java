@@ -20,7 +20,7 @@ package org.killbill.billing.invoice;
 
 import java.util.UUID;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.joda.time.DateTime;
 import org.killbill.billing.account.api.AccountInternalApi;
@@ -41,9 +41,10 @@ public class TestInvoiceNotificationQListener extends InvoiceListener {
                                             final InternalCallContextFactory internalCallContextFactory,
                                             final InvoiceDispatcher dispatcher,
                                             final InvoiceInternalApi invoiceApi,
+                                            final ParkedAccountsManager parkedAccountsManager,
                                             final BusDispatcherOptimizer busOptimizer,
                                             final NotificationQueueService notificationQueueService) {
-        super(accountApi, internalCallContextFactory, dispatcher, invoiceApi, notificationQueueService, busOptimizer, clock);
+        super(accountApi, internalCallContextFactory, dispatcher, invoiceApi, parkedAccountsManager, notificationQueueService, busOptimizer, clock);
     }
 
     @Override

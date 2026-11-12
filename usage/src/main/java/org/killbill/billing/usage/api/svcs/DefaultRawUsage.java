@@ -17,20 +17,21 @@
 
 package org.killbill.billing.usage.api.svcs;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
-import org.joda.time.LocalDate;
+import org.joda.time.DateTime;
 import org.killbill.billing.usage.api.RawUsageRecord;
 
 public class DefaultRawUsage implements RawUsageRecord {
 
     private final UUID subscriptionId;
-    private final LocalDate recordDate;
+    private final DateTime recordDate;
     private final String unitType;
-    private final Long amount;
+    private final BigDecimal amount;
     private final String trackingId;
 
-    public DefaultRawUsage(final UUID subscriptionId, final LocalDate recordDate, final String unitType, final Long amount, final String trackingId) {
+    public DefaultRawUsage(final UUID subscriptionId, final DateTime recordDate, final String unitType, final BigDecimal amount, final String trackingId) {
         this.subscriptionId = subscriptionId;
         this.recordDate = recordDate;
         this.unitType = unitType;
@@ -44,7 +45,7 @@ public class DefaultRawUsage implements RawUsageRecord {
     }
 
     @Override
-    public LocalDate getDate() {
+    public DateTime getDate() {
         return recordDate;
     }
 
@@ -54,13 +55,49 @@ public class DefaultRawUsage implements RawUsageRecord {
     }
 
     @Override
-    public Long getAmount() {
+    public BigDecimal getAmount() {
         return amount;
     }
 
     @Override
     public String getTrackingId() {
         return trackingId;
+    }
+
+    @Override
+    public boolean equals(final Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof DefaultRawUsage)) {
+            return false;
+        }
+
+        final DefaultRawUsage that = (DefaultRawUsage) o;
+
+        if (subscriptionId != null ? !subscriptionId.equals(that.subscriptionId) : that.subscriptionId != null) {
+            return false;
+        }
+        if (recordDate != null ? !recordDate.equals(that.recordDate) : that.recordDate != null) {
+            return false;
+        }
+        if (unitType != null ? !unitType.equals(that.unitType) : that.unitType != null) {
+            return false;
+        }
+        if (amount != null ? !amount.equals(that.amount) : that.amount != null) {
+            return false;
+        }
+        return trackingId != null ? trackingId.equals(that.trackingId) : that.trackingId == null;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = subscriptionId != null ? subscriptionId.hashCode() : 0;
+        result = 31 * result + (recordDate != null ? recordDate.hashCode() : 0);
+        result = 31 * result + (unitType != null ? unitType.hashCode() : 0);
+        result = 31 * result + (amount != null ? amount.hashCode() : 0);
+        result = 31 * result + (trackingId != null ? trackingId.hashCode() : 0);
+        return result;
     }
 
     @Override

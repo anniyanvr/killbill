@@ -19,6 +19,8 @@
 package org.killbill.billing.invoice.calculator;
 
 import java.math.BigDecimal;
+import java.util.Iterator;
+import java.util.stream.Collectors;
 
 import javax.annotation.Nullable;
 
@@ -27,22 +29,44 @@ import org.killbill.billing.catalog.api.Currency;
 import org.killbill.billing.invoice.api.InvoiceItem;
 import org.killbill.billing.invoice.api.InvoiceItemType;
 import org.killbill.billing.invoice.api.InvoicePayment;
+import org.killbill.billing.invoice.api.InvoicePaymentStatus;
 import org.killbill.billing.invoice.api.InvoicePaymentType;
+import org.killbill.commons.utils.collect.Iterables;
 import org.killbill.billing.util.currency.KillBillMoney;
-
-import com.google.common.base.Predicate;
-import com.google.common.collect.Iterables;
 
 public abstract class InvoiceCalculatorUtils {
 
-    // Invoice adjustments
-    public static boolean isInvoiceAdjustmentItem(final InvoiceItem invoiceItem, final Iterable<InvoiceItem> otherInvoiceItems) {
+    public static boolean isInvoiceAdjustmentItem(final InvoiceItem invoiceItemToCheck, final Iterable<InvoiceItem> invoiceItems) {
         // Invoice level credit, i.e. credit adj, but NOT on its on own invoice
-        return (InvoiceItemType.CREDIT_ADJ.equals(invoiceItem.getInvoiceItemType()) &&
-                !(Iterables.size(otherInvoiceItems) == 1 &&
-                  InvoiceItemType.CBA_ADJ.equals(otherInvoiceItems.iterator().next().getInvoiceItemType()) &&
-                  otherInvoiceItems.iterator().next().getInvoiceId().equals(invoiceItem.getInvoiceId()) &&
-                  otherInvoiceItems.iterator().next().getAmount().compareTo(invoiceItem.getAmount().negate()) == 0));
+    	
+    	return InvoiceItemType.CREDIT_ADJ.equals(invoiceItemToCheck.getInvoiceItemType())  &&
+                !isCreditInvoice(invoiceItems);
+    }
+
+    private static boolean isCreditInvoice(final Iterable<InvoiceItem> invoiceItems) { 
+
+        if (Iterables.size(invoiceItems) != 2) {
+            return false;
+        }
+
+        final Iterator<InvoiceItem> itr = invoiceItems.iterator();
+
+        final InvoiceItem item1 = itr.next();
+        final InvoiceItem item2 = itr.next();
+
+        if (!InvoiceItemType.CREDIT_ADJ.equals(item1.getInvoiceItemType()) && !InvoiceItemType.CREDIT_ADJ.equals(item2.getInvoiceItemType())) {
+            return false;
+        }
+        
+        return ((InvoiceItemType.CREDIT_ADJ.equals(item1.getInvoiceItemType()) && isCbaAdjItemInCreditInvoice(item1, item2)) || 
+        		(InvoiceItemType.CREDIT_ADJ.equals(item2.getInvoiceItemType()) && isCbaAdjItemInCreditInvoice(item2, item1)));
+
+    }
+
+    private static boolean isCbaAdjItemInCreditInvoice(final InvoiceItem creditAdjItem, final InvoiceItem itemToCheck) { 
+    	return (InvoiceItemType.CBA_ADJ.equals(itemToCheck.getInvoiceItemType()) && 
+        		itemToCheck.getInvoiceId().equals(creditAdjItem.getInvoiceId()) && 
+        		itemToCheck.getAmount().compareTo(creditAdjItem.getAmount().negate()) == 0);
     }
 
     // Item adjustments
@@ -73,7 +97,6 @@ public abstract class InvoiceCalculatorUtils {
                                                       @Nullable final Iterable<InvoiceItem> invoiceItems,
                                                       @Nullable final Iterable<InvoicePayment> invoicePayments) {
 
-
         final BigDecimal amountPaid = computeInvoiceAmountPaid(currency, invoicePayments)
                 .add(computeInvoiceAmountRefunded(currency, invoicePayments));
 
@@ -92,12 +115,9 @@ public abstract class InvoiceCalculatorUtils {
             return BigDecimal.ZERO;
         }
 
-        final Iterable<InvoiceItem> chargeItems = Iterables.filter(invoiceItems, new Predicate<InvoiceItem>() {
-            @Override
-            public boolean apply(final InvoiceItem input) {
-                return isCharge(input);
-            }
-        });
+        final Iterable<InvoiceItem> chargeItems = Iterables.toStream(invoiceItems)
+                .filter(InvoiceCalculatorUtils::isCharge)
+                .collect(Collectors.toUnmodifiableList());
 
         if (Iterables.isEmpty(chargeItems)) {
             // return only credit amount to be subtracted to parent item amount
@@ -111,29 +131,26 @@ public abstract class InvoiceCalculatorUtils {
     }
 
     // Snowflake for the CREDIT_ADJ on its own invoice
-    private static BigDecimal computeInvoiceAmountAdjustedForAccountCredit(final Currency currency, final Iterable<InvoiceItem> invoiceItems) {
+    private static BigDecimal computeInvoiceAmountAdjustedForAccountCredit(final Currency currency,
+                                                                           final Iterable<InvoiceItem> invoiceItems) {
         BigDecimal amountAdjusted = BigDecimal.ZERO;
         if (invoiceItems == null || !invoiceItems.iterator().hasNext()) {
             return KillBillMoney.of(amountAdjusted, currency);
         }
 
-        for (final InvoiceItem invoiceItem : invoiceItems) {
-            final Iterable<InvoiceItem> otherInvoiceItems = Iterables.filter(invoiceItems, new Predicate<InvoiceItem>() {
-                @Override
-                public boolean apply(final InvoiceItem input) {
-                    return !input.getId().equals(invoiceItem.getId());
-                }
-            });
+        if (isCreditInvoice(invoiceItems)) { //if the invoice corresponds to a CREDIT, include its amount
 
-            if (InvoiceItemType.CREDIT_ADJ.equals(invoiceItem.getInvoiceItemType()) &&
-                (Iterables.size(otherInvoiceItems) == 1 &&
-                 InvoiceItemType.CBA_ADJ.equals(otherInvoiceItems.iterator().next().getInvoiceItemType()) &&
-                 otherInvoiceItems.iterator().next().getInvoiceId().equals(invoiceItem.getInvoiceId()) &&
-                 otherInvoiceItems.iterator().next().getAmount().compareTo(invoiceItem.getAmount().negate()) == 0)) {
-                amountAdjusted = amountAdjusted.add(invoiceItem.getAmount());
+            final Iterator<InvoiceItem> itr = invoiceItems.iterator();
+
+            final InvoiceItem item1 = itr.next();
+            final InvoiceItem item2 = itr.next();
+
+            if (InvoiceItemType.CREDIT_ADJ.equals(item1.getInvoiceItemType())) {
+                amountAdjusted = amountAdjusted.add(item1.getAmount());
+            } else  { // since the isCreditInvoice is already checked, this implies that item2 is of type CREDIT_ADJ
+                amountAdjusted = amountAdjusted.add(item2.getAmount());
             }
         }
-
         return KillBillMoney.of(amountAdjusted, currency);
     }
 
@@ -144,15 +161,9 @@ public abstract class InvoiceCalculatorUtils {
         }
 
         for (final InvoiceItem invoiceItem : invoiceItems) {
-            final Iterable<InvoiceItem> otherInvoiceItems = Iterables.filter(invoiceItems, new Predicate<InvoiceItem>() {
-                @Override
-                public boolean apply(final InvoiceItem input) {
-                    return !input.getId().equals(invoiceItem.getId());
-                }
-            });
 
             if (isCharge(invoiceItem) ||
-                isInvoiceAdjustmentItem(invoiceItem, otherInvoiceItems) ||
+                isInvoiceAdjustmentItem(invoiceItem, invoiceItems) ||
                 isInvoiceItemAdjustmentItem(invoiceItem) ||
                 isParentSummaryItem(invoiceItem)) {
                 amountCharged = amountCharged.add(invoiceItem.getAmount());
@@ -200,7 +211,7 @@ public abstract class InvoiceCalculatorUtils {
         }
 
         for (final InvoicePayment invoicePayment : invoicePayments) {
-            if (!invoicePayment.isSuccess()) {
+            if (invoicePayment.getStatus() != InvoicePaymentStatus.SUCCESS) {
                 continue;
             }
             if (InvoicePaymentType.ATTEMPT.equals(invoicePayment.getType())) {
@@ -218,7 +229,7 @@ public abstract class InvoiceCalculatorUtils {
         }
 
         for (final InvoicePayment invoicePayment : invoicePayments) {
-            if (invoicePayment.isSuccess() == null || !invoicePayment.isSuccess()) {
+            if (invoicePayment.getStatus() != InvoicePaymentStatus.SUCCESS) {
                 continue;
             }
             if (InvoicePaymentType.REFUND.equals(invoicePayment.getType()) ||

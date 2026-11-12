@@ -24,7 +24,7 @@ import java.util.List;
 import java.util.UUID;
 
 import javax.annotation.Nullable;
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
@@ -73,7 +73,6 @@ import org.killbill.billing.junction.BillingEvent;
 import org.killbill.billing.junction.BillingEventSet;
 import org.killbill.billing.junction.BillingInternalApi;
 import org.killbill.billing.junction.plumbing.billing.DefaultBillingEvent;
-import org.killbill.billing.lifecycle.api.BusService;
 import org.killbill.billing.mock.MockAccountBuilder;
 import org.killbill.billing.subscription.api.SubscriptionBase;
 import org.killbill.billing.subscription.api.SubscriptionBaseInternalApi;
@@ -91,10 +90,6 @@ import org.killbill.notificationq.api.NotificationQueueService;
 import org.mockito.Mockito;
 import org.skife.jdbi.v2.IDBI;
 import org.testng.Assert;
-
-import com.google.common.base.Function;
-import com.google.common.collect.Collections2;
-import com.google.common.collect.ImmutableList;
 
 public class TestInvoiceHelper {
 
@@ -219,20 +214,20 @@ public class TestInvoiceHelper {
                                           fixedPrice, recurringPrice, currency, BillingPeriod.MONTHLY, 1,
                                           BillingMode.IN_ADVANCE, "", 1L, SubscriptionBaseTransitionType.CREATE));
 
-        Mockito.when(billingApi.getBillingEventsForAccountAndUpdateAccountBCD(Mockito.<UUID>any(), Mockito.<DryRunArguments>any(), Mockito.<InternalCallContext>any())).thenReturn(events);
+        Mockito.when(billingApi.getBillingEventsForAccountAndUpdateAccountBCD(Mockito.<UUID>any(), Mockito.<DryRunArguments>any(), Mockito.<LocalDate>any(), Mockito.<InternalCallContext>any())).thenReturn(events);
 
         final InternalCallContext context = internalCallContextFactory.createInternalCallContext(account.getId(), callContext);
 
         Invoice invoice = generateInvoice(account.getId(), targetDate, new DryRunFutureDateArguments(), context);
         Assert.assertNotNull(invoice);
 
-        List<InvoiceModelDao> invoices = invoiceDao.getInvoicesByAccount(false, context);
+        List<InvoiceModelDao> invoices = invoiceDao.getInvoicesByAccount(false, true, context);
         Assert.assertEquals(invoices.size(), 0);
 
         invoice = generateInvoice(account.getId(), targetDate, null, context);
         Assert.assertNotNull(invoice);
 
-        invoices = invoiceDao.getInvoicesByAccount(false, context);
+        invoices = invoiceDao.getInvoicesByAccount(false, true, context);
         Assert.assertEquals(invoices.size(), 1);
 
         return invoice.getId();
@@ -243,7 +238,9 @@ public class TestInvoiceHelper {
                                                                    invoiceDao, internalCallContextFactory, invoicePluginDispatcher, locker, eventBus,
                                                                    notificationQueueService, invoiceConfig, clock, invoiceOptimizer, parkedAccountsManager);
 
-        return dispatcher.processAccountFromNotificationOrBusEvent(accountId, targetDate, dryRunArguments, false, internalCallContext);
+        final List<Invoice> result = dispatcher.processAccountFromNotificationOrBusEvent(accountId, targetDate, dryRunArguments, false, internalCallContext);
+        Assert.assertEquals(result.size(), 1);
+        return result.get(0);
     }
 
     public SubscriptionBase createSubscription() throws SubscriptionBaseApiException {
@@ -252,7 +249,7 @@ public class TestInvoiceHelper {
         final SubscriptionBase subscription = Mockito.mock(SubscriptionBase.class);
         Mockito.when(subscription.getId()).thenReturn(uuid);
         Mockito.when(subscription.getBundleId()).thenReturn(bundleId);
-        Mockito.when(subscriptionApi.getSubscriptionFromId(Mockito.<UUID>any(), Mockito.<InternalTenantContext>any())).thenReturn(subscription);
+        Mockito.when(subscriptionApi.getSubscriptionFromId(Mockito.<UUID>any(), Mockito.eq(false), Mockito.<InternalTenantContext>any())).thenReturn(subscription);
         return subscription;
     }
 
@@ -301,18 +298,11 @@ public class TestInvoiceHelper {
     }
 
     public List<InvoiceItemModelDao> getInvoiceItemByInvoiceId(final UUID invoiceId, final InternalCallContext internalCallContext) {
-        return invoiceItemSqlDao.getInvoiceItemsByInvoice(invoiceId.toString(), internalCallContext);
+        return invoiceItemSqlDao.getInvoiceItemsForInvoices(List.of(invoiceId), internalCallContext);
     }
 
     public void createInvoice(final Invoice invoice, final InternalCallContext internalCallContext) throws EntityPersistenceException {
         final InvoiceModelDao invoiceModelDao = new InvoiceModelDao(invoice);
-        final List<InvoiceItemModelDao> invoiceItemModelDaos = ImmutableList.<InvoiceItemModelDao>copyOf(Collections2.transform(invoice.getInvoiceItems(),
-                                                                                                                                new Function<InvoiceItem, InvoiceItemModelDao>() {
-                                                                                                                                    @Override
-                                                                                                                                    public InvoiceItemModelDao apply(final InvoiceItem input) {
-                                                                                                                                        return new InvoiceItemModelDao(input);
-                                                                                                                                    }
-                                                                                                                                }));
         invoiceSqlDao.create(invoiceModelDao, internalCallContext);
 
         for (final InvoiceItem invoiceItem : invoice.getInvoiceItems()) {
@@ -370,6 +360,11 @@ public class TestInvoiceHelper {
             @Override
             public int getBillCycleDayLocal() {
                 return billCycleDayLocal;
+            }
+
+            @Override
+            public int getQuantity() {
+                return 1;
             }
 
             @Override

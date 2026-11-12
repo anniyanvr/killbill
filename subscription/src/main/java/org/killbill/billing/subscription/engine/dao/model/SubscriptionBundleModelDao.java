@@ -16,6 +16,7 @@
 
 package org.killbill.billing.subscription.engine.dao.model;
 
+import java.util.Objects;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -27,8 +28,6 @@ import org.killbill.billing.util.dao.TableName;
 import org.killbill.billing.util.entity.dao.EntityModelDao;
 import org.killbill.billing.util.entity.dao.EntityModelDaoBase;
 
-import com.google.common.base.MoreObjects;
-
 public class SubscriptionBundleModelDao extends EntityModelDaoBase implements EntityModelDao<SubscriptionBaseBundle> {
 
     // Any key that starts with kb<some_prefix>-<some_number>:<something> is interpreted as a  <something> key that got renamed for internal purpose
@@ -38,6 +37,7 @@ public class SubscriptionBundleModelDao extends EntityModelDaoBase implements En
 
     private String externalKey;
     private UUID accountId;
+    @Deprecated
     private DateTime lastSysUpdateDate;
     private DateTime originalCreatedDate;
 
@@ -46,14 +46,14 @@ public class SubscriptionBundleModelDao extends EntityModelDaoBase implements En
     public SubscriptionBundleModelDao(final UUID id, final String key, final UUID accountId, final DateTime lastSysUpdateDate,
                                       final DateTime createdDate, DateTime originalCreatedDate, final DateTime updateDate) {
         super(id, createdDate, updateDate);
-        this.externalKey = MoreObjects.firstNonNull(key, id.toString());
+        this.externalKey = Objects.requireNonNullElse(key, id.toString());
         this.accountId = accountId;
         this.lastSysUpdateDate = lastSysUpdateDate;
         this.originalCreatedDate = originalCreatedDate;
     }
 
     public SubscriptionBundleModelDao(final DefaultSubscriptionBaseBundle input) {
-        this(input.getId(), input.getExternalKey(), input.getAccountId(), input.getLastSysUpdateDate(), input.getCreatedDate(), input.getOriginalCreatedDate(), input.getUpdatedDate());
+        this(input.getId(), input.getExternalKey(), input.getAccountId(), null, input.getCreatedDate(), input.getOriginalCreatedDate(), input.getUpdatedDate());
     }
 
     public String getExternalKey() {
@@ -96,7 +96,7 @@ public class SubscriptionBundleModelDao extends EntityModelDaoBase implements En
         // Fix externalKey to remove internal prefix used for tsf
         final Matcher m = BUNDLE_KEY_PATTERN.matcher(src.getExternalKey());
         final String externalKey = m.matches() ? m.group(1) : src.getExternalKey();
-        return new DefaultSubscriptionBaseBundle(src.getId(), externalKey, src.getAccountId(), src.getLastSysUpdateDate(), src.getOriginalCreatedDate(), src.getCreatedDate(), src.getUpdatedDate());
+        return new DefaultSubscriptionBaseBundle(src.getId(), externalKey, src.getAccountId(), src.getOriginalCreatedDate(), src.getCreatedDate(), src.getUpdatedDate());
     }
 
     @Override

@@ -27,11 +27,12 @@ import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.UUID;
 
+import jakarta.inject.Inject;
+
 import org.joda.time.LocalDate;
 import org.killbill.billing.ObjectType;
 import org.killbill.billing.account.api.ImmutableAccountData;
 import org.killbill.billing.callcontext.InternalCallContext;
-import org.killbill.billing.callcontext.InternalTenantContext;
 import org.killbill.billing.invoice.api.Invoice;
 import org.killbill.billing.invoice.api.InvoiceInternalApi;
 import org.killbill.billing.overdue.config.api.BillingState;
@@ -41,26 +42,20 @@ import org.killbill.billing.tag.TagInternalApi;
 import org.killbill.billing.util.tag.Tag;
 import org.killbill.clock.Clock;
 
-import com.google.inject.Inject;
-
 public class BillingStateCalculator {
+
+    private static final Comparator<Invoice> UNPAID_INVOICES_FOR_ACCOUNT_COMPARATOR = (i1, i2) -> {
+        final LocalDate d1 = i1.getInvoiceDate();
+        final LocalDate d2 = i2.getInvoiceDate();
+        if (d1.compareTo(d2) == 0) {
+            return i1.hashCode() - i2.hashCode(); // consistent (arbitrary) resolution for tied dates
+        }
+        return d1.compareTo(d2);
+    };
 
     private final InvoiceInternalApi invoiceApi;
     private final TagInternalApi tagApi;
     private final Clock clock;
-
-    protected class InvoiceDateComparator implements Comparator<Invoice> {
-
-        @Override
-        public int compare(final Invoice i1, final Invoice i2) {
-            final LocalDate d1 = i1.getInvoiceDate();
-            final LocalDate d2 = i2.getInvoiceDate();
-            if (d1.compareTo(d2) == 0) {
-                return i1.hashCode() - i2.hashCode(); // consistent (arbitrary) resolution for tied dates
-            }
-            return d1.compareTo(d2);
-        }
-    }
 
     @Inject
     public BillingStateCalculator(final InvoiceInternalApi invoiceApi, final Clock clock, final TagInternalApi tagApi) {
@@ -92,7 +87,7 @@ public class BillingStateCalculator {
     Invoice earliest(final SortedSet<Invoice> unpaidInvoices) {
         try {
             return unpaidInvoices.first();
-        } catch (NoSuchElementException e) {
+        } catch (final NoSuchElementException e) {
             return null;
         }
     }
@@ -107,7 +102,7 @@ public class BillingStateCalculator {
 
     SortedSet<Invoice> unpaidInvoicesForAccount(final UUID accountId, final InternalCallContext context) {
         final Collection<Invoice> invoices = invoiceApi.getUnpaidInvoicesByAccountId(accountId, context.toLocalDate(context.getCreatedDate()), context);
-        final SortedSet<Invoice> sortedInvoices = new TreeSet<Invoice>(new InvoiceDateComparator());
+        final SortedSet<Invoice> sortedInvoices = new TreeSet<Invoice>(UNPAID_INVOICES_FOR_ACCOUNT_COMPARATOR);
         sortedInvoices.addAll(invoices);
         return sortedInvoices;
     }

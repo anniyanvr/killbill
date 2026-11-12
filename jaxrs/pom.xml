@@ -21,13 +21,14 @@
     <parent>
         <groupId>org.kill-bill.billing</groupId>
         <artifactId>killbill</artifactId>
-        <version>0.22.28-SNAPSHOT</version>
+        <version>0.25.7-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
     <artifactId>killbill-jaxrs</artifactId>
     <packaging>jar</packaging>
     <name>killbill-jaxrs</name>
     <properties>
+        <check.fail-spotbugs>true</check.fail-spotbugs>
         <main.basedir>${project.parent.basedir}</main.basedir>
     </properties>
     <dependencies>
@@ -43,30 +44,47 @@
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
         </dependency>
+        <!-- These deps (and swagger-core-jakarta) needed by SwaggerResource.
+             If it is not approved/removed, remove them -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.dataformat</groupId>
+            <artifactId>jackson-dataformat-yaml</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.google.code.findbugs</groupId>
             <artifactId>jsr305</artifactId>
             <scope>provided</scope>
         </dependency>
         <dependency>
-            <groupId>com.google.guava</groupId>
-            <artifactId>guava</artifactId>
-        </dependency>
-        <dependency>
             <groupId>com.google.inject</groupId>
             <artifactId>guice</artifactId>
         </dependency>
         <dependency>
-            <groupId>io.swagger</groupId>
-            <artifactId>swagger-annotations</artifactId>
+            <groupId>io.swagger.core.v3</groupId>
+            <artifactId>swagger-annotations-jakarta</artifactId>
         </dependency>
         <dependency>
-            <groupId>io.swagger</groupId>
-            <artifactId>swagger-jaxrs</artifactId>
+            <groupId>io.swagger.core.v3</groupId>
+            <artifactId>swagger-core-jakarta</artifactId>
+            <version>${swagger.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.datatype</groupId>
+                    <artifactId>jackson-datatype-jsr310</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
-            <groupId>io.swagger</groupId>
-            <artifactId>swagger-models</artifactId>
+            <groupId>io.swagger.core.v3</groupId>
+            <artifactId>swagger-integration-jakarta</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.swagger.core.v3</groupId>
+            <artifactId>swagger-jaxrs2-jakarta</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.swagger.core.v3</groupId>
+            <artifactId>swagger-models-jakarta</artifactId>
         </dependency>
         <dependency>
             <groupId>it.ozimov</groupId>
@@ -74,16 +92,20 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>jakarta.inject</groupId>
+            <artifactId>jakarta.inject-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+        </dependency>
+        <dependency>
             <groupId>jakarta.ws.rs</groupId>
             <artifactId>jakarta.ws.rs-api</artifactId>
         </dependency>
         <dependency>
-            <groupId>javax.inject</groupId>
-            <artifactId>javax.inject</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>javax.servlet</groupId>
-            <artifactId>javax.servlet-api</artifactId>
+            <groupId>jakarta.xml.bind</groupId>
+            <artifactId>jakarta.xml.bind-api</artifactId>
         </dependency>
         <dependency>
             <groupId>joda-time</groupId>
@@ -92,6 +114,10 @@
         <dependency>
             <groupId>org.apache.shiro</groupId>
             <artifactId>shiro-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.shiro</groupId>
+            <artifactId>shiro-lang</artifactId>
         </dependency>
         <dependency>
             <groupId>org.kill-bill.billing</groupId>
@@ -156,7 +182,7 @@
         </dependency>
         <dependency>
             <groupId>org.kill-bill.commons</groupId>
-            <artifactId>killbill-metrics</artifactId>
+            <artifactId>killbill-metrics-api</artifactId>
         </dependency>
         <dependency>
             <groupId>org.kill-bill.commons</groupId>
@@ -167,6 +193,10 @@
             <artifactId>killbill-queue</artifactId>
             <type>test-jar</type>
             <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.kill-bill.commons</groupId>
+            <artifactId>killbill-utils</artifactId>
         </dependency>
         <dependency>
             <groupId>org.kill-bill.commons</groupId>
@@ -181,12 +211,6 @@
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
         </dependency>
-        <!-- logback-classic is pulled by dropwizard-metrics-influxdb -->
-        <!--<dependency>-->
-        <!--    <groupId>org.slf4j</groupId>-->
-        <!--    <artifactId>slf4j-simple</artifactId>-->
-        <!--    <scope>test</scope>-->
-        <!--</dependency>-->
         <dependency>
             <groupId>org.testng</groupId>
             <artifactId>testng</artifactId>

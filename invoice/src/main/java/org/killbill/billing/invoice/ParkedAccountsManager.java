@@ -19,21 +19,22 @@ package org.killbill.billing.invoice;
 
 import java.util.UUID;
 
+import jakarta.inject.Inject;
+
 import org.killbill.billing.ErrorCode;
 import org.killbill.billing.ObjectType;
 import org.killbill.billing.callcontext.InternalCallContext;
 import org.killbill.billing.tag.TagInternalApi;
 import org.killbill.billing.util.api.TagApiException;
 import org.killbill.billing.util.api.TagDefinitionApiException;
-import org.killbill.billing.util.tag.Tag;
-
-import com.google.common.base.Predicate;
-import com.google.common.collect.Iterables;
-import com.google.inject.Inject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.killbill.billing.util.tag.dao.SystemTags.PARK_TAG_DEFINITION_ID;
 
 public class ParkedAccountsManager {
+
+    private static final Logger log = LoggerFactory.getLogger(ParkedAccountsManager.class);
 
     private final TagInternalApi tagApi;
 
@@ -44,6 +45,7 @@ public class ParkedAccountsManager {
 
     // Idempotent
     public void parkAccount(final UUID accountId, final InternalCallContext internalCallContext) throws TagApiException {
+        log.warn("Parking account for accountId='{}'", accountId);
         try {
             tagApi.addTag(accountId, ObjectType.ACCOUNT, PARK_TAG_DEFINITION_ID, internalCallContext);
         } catch (final TagApiException e) {
@@ -54,16 +56,13 @@ public class ParkedAccountsManager {
     }
 
     public void unparkAccount(final UUID accountId, final InternalCallContext internalCallContext) throws TagApiException {
+        log.warn("Unparking account for accountId='{}'", accountId);
         tagApi.removeTag(accountId, ObjectType.ACCOUNT, PARK_TAG_DEFINITION_ID, internalCallContext);
     }
 
     public boolean isParked(final InternalCallContext internalCallContext) throws TagApiException {
-        return Iterables.<Tag>tryFind(tagApi.getTagsForAccountType(ObjectType.ACCOUNT, false, internalCallContext),
-                                      new Predicate<Tag>() {
-                                          @Override
-                                          public boolean apply(final Tag input) {
-                                              return PARK_TAG_DEFINITION_ID.equals(input.getTagDefinitionId());
-                                          }
-                                      }).orNull() != null;
+        return tagApi.getTagsForAccountType(ObjectType.ACCOUNT, false, internalCallContext)
+                     .stream()
+                     .anyMatch(input -> PARK_TAG_DEFINITION_ID.equals(input.getTagDefinitionId()));
     }
 }

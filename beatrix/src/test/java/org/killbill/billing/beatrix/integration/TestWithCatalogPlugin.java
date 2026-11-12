@@ -19,9 +19,9 @@ package org.killbill.billing.beatrix.integration;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.stream.Collectors;
 
-import javax.annotation.Nullable;
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.joda.time.DateTime;
 import org.joda.time.LocalDate;
@@ -35,25 +35,24 @@ import org.killbill.billing.catalog.StandaloneCatalog;
 import org.killbill.billing.catalog.StandaloneCatalogWithPriceOverride;
 import org.killbill.billing.catalog.api.BillingPeriod;
 import org.killbill.billing.catalog.api.CatalogUserApi;
-import org.killbill.billing.catalog.api.Plan;
-import org.killbill.billing.catalog.api.PriceList;
-import org.killbill.billing.catalog.api.Product;
 import org.killbill.billing.catalog.api.ProductCategory;
-import org.killbill.billing.catalog.api.StaticCatalog;
 import org.killbill.billing.catalog.api.VersionedCatalog;
-import org.killbill.billing.catalog.override.PriceOverride;
+import org.killbill.billing.catalog.override.PriceOverrideSvc;
 import org.killbill.billing.catalog.plugin.TestModelStandalonePluginCatalog;
 import org.killbill.billing.catalog.plugin.TestModelVersionedPluginCatalog;
 import org.killbill.billing.catalog.plugin.api.CatalogPluginApi;
 import org.killbill.billing.catalog.plugin.api.StandalonePluginCatalog;
 import org.killbill.billing.catalog.plugin.api.VersionedPluginCatalog;
 import org.killbill.billing.entitlement.api.DefaultEntitlement;
+import org.killbill.billing.invoice.api.Invoice;
+import org.killbill.billing.invoice.api.InvoiceItem;
 import org.killbill.billing.invoice.api.InvoiceItemType;
 import org.killbill.billing.osgi.api.OSGIServiceDescriptor;
 import org.killbill.billing.osgi.api.OSGIServiceRegistration;
 import org.killbill.billing.payment.api.PluginProperty;
 import org.killbill.billing.util.callcontext.InternalCallContextFactory;
 import org.killbill.billing.util.callcontext.TenantContext;
+import org.killbill.commons.utils.io.Resources;
 import org.killbill.clock.Clock;
 import org.killbill.xmlloader.XMLLoader;
 import org.testng.Assert;
@@ -61,18 +60,13 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import com.google.common.base.Function;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
-import com.google.common.io.Resources;
-
 public class TestWithCatalogPlugin extends TestIntegrationBase {
 
     @Inject
     private OSGIServiceRegistration<CatalogPluginApi> pluginRegistry;
 
     @Inject
-    private PriceOverride priceOverride;
+    private PriceOverrideSvc priceOverride;
 
     @Inject
     private InternalCallContextFactory internalCallContextFactory;
@@ -134,7 +128,7 @@ public class TestWithCatalogPlugin extends TestIntegrationBase {
 
         // Create original subscription (Trial PHASE) -> $0 invoice.
         final DefaultEntitlement bpSubscription = createBaseEntitlementAndCheckForCompletion(account.getId(), "bundleKey", "Pistol", ProductCategory.BASE, BillingPeriod.MONTHLY, NextEvent.CREATE, NextEvent.BLOCK, NextEvent.INVOICE);
-        invoiceChecker.checkInvoice(account.getId(), 1, callContext, new ExpectedInvoiceItemCheck(new LocalDate(2012, 4, 1), null, InvoiceItemType.FIXED, new BigDecimal("0")));
+        invoiceChecker.checkInvoice(account.getId(), 1, callContext, new ExpectedInvoiceItemCheck(new LocalDate(2012, 4, 1), new LocalDate(2012, 5, 1), InvoiceItemType.FIXED, new BigDecimal("0")));
         subscriptionChecker.checkSubscriptionCreated(bpSubscription.getId(), internalCallContext);
 
         // Code went to retrieve catalog more than one time
@@ -176,7 +170,6 @@ public class TestWithCatalogPlugin extends TestIntegrationBase {
         Assert.assertEquals(testCatalogPluginApi.getNbVersionedPluginCatalogApiCalls(), 3);
         Assert.assertEquals(catalog3.getVersions().get(2).getEffectiveDate().compareTo(testCatalogPluginApi.getLatestCatalogUpdate().toDate()), 0);
 
-
         // Retrieve 4 more times
         catalogUserApi.getCatalog("whatever", callContext);
         catalogUserApi.getCatalog("whatever", callContext);
@@ -187,10 +180,79 @@ public class TestWithCatalogPlugin extends TestIntegrationBase {
 
     }
 
+    @Test(groups = "slow")
+    public void testPrettyNamesWithCatalogPlugin() throws Exception {
+
+        testCatalogPluginApi.addCatalogVersion("org/killbill/billing/catalog/WeaponsHire.xml");
+
+        // We take april as it has 30 days (easier to play with BCD)
+        // Set clock to the initial start date - we implicitly assume here that the account timezone is UTC
+        clock.setDay(new LocalDate(2012, 4, 1));
+
+        final AccountData accountData = getAccountData(1);
+        final Account account = createAccountWithNonOsgiPaymentMethod(accountData);
+        accountChecker.checkAccount(account.getId(), accountData, callContext);
+
+        // Create subscription
+        final DefaultEntitlement bpSubscription = createBaseEntitlementAndCheckForCompletion(account.getId(), "bundleKey", "Pistol", ProductCategory.BASE, BillingPeriod.MONTHLY, NextEvent.CREATE, NextEvent.BLOCK, NextEvent.INVOICE);
+        invoiceChecker.checkInvoice(account.getId(), 1, callContext, new ExpectedInvoiceItemCheck(new LocalDate(2012, 4, 1), new LocalDate(2012, 5, 1), InvoiceItemType.FIXED, new BigDecimal("0")));
+        subscriptionChecker.checkSubscriptionCreated(bpSubscription.getId(), internalCallContext);
+
+        //trial phase
+        Invoice invoice = invoiceUserApi.getInvoicesByAccount(account.getId(), false, false, true, callContext).get(0);
+        Assert.assertEquals(invoice.getInvoiceItems().size(),1);
+        InvoiceItem invoiceItem = invoice.getInvoiceItems().get(0);
+        Assert.assertNotNull(invoiceItem);
+        Assert.assertEquals(invoiceItem.getPrettyProductName(),"Pistol For Hire");
+        Assert.assertEquals(invoiceItem.getPrettyPlanName(),"Pistol Monthly Plan");
+        Assert.assertEquals(invoiceItem.getPrettyPhaseName(),"Pistol Monthly Plan Trial Phase");
+        Assert.assertNull(invoiceItem.getPrettyUsageName());
+
+        //Move out of trial phase
+        busHandler.pushExpectedEvents(NextEvent.PHASE, NextEvent.INVOICE, NextEvent.PAYMENT, NextEvent.INVOICE_PAYMENT);
+        clock.addMonths(1);
+        assertListenerStatus();
+
+        invoice = invoiceUserApi.getInvoicesByAccount(account.getId(), false, false, true, callContext).get(1);
+        Assert.assertEquals(invoice.getInvoiceItems().size(),1);
+        invoiceItem = invoice.getInvoiceItems().get(0);
+        Assert.assertNotNull(invoiceItem);
+        Assert.assertEquals(invoiceItem.getPrettyProductName(),"Pistol For Hire");
+        Assert.assertEquals(invoiceItem.getPrettyPlanName(),"Pistol Monthly Plan");
+        Assert.assertEquals(invoiceItem.getPrettyPhaseName(),"Pistol Monthly Plan Evergreen Phase");
+        Assert.assertNull(invoiceItem.getPrettyUsageName());
+
+        //record usage and move clock by a month
+        recordUsageData(bpSubscription.getBaseEntitlementId(), "t1", "hours", clock.getUTCToday().plusDays(1), new BigDecimal(2), callContext);
+
+        busHandler.pushExpectedEvents(NextEvent.INVOICE, NextEvent.PAYMENT, NextEvent.INVOICE_PAYMENT);
+        clock.addMonths(1);
+        assertListenerStatus();
+
+        invoice = invoiceUserApi.getInvoicesByAccount(account.getId(), false, false, true, callContext).get(2);
+        Assert.assertEquals(invoice.getInvoiceItems().size(),2);
+
+        //retrieve recurring item
+        invoiceItem = invoice.getInvoiceItems().stream().filter(item -> item.getInvoiceItemType() == InvoiceItemType.RECURRING).findFirst().get();
+        Assert.assertNotNull(invoiceItem);
+        Assert.assertEquals(invoiceItem.getPrettyProductName(),"Pistol For Hire");
+        Assert.assertEquals(invoiceItem.getPrettyPlanName(),"Pistol Monthly Plan");
+        Assert.assertEquals(invoiceItem.getPrettyPhaseName(),"Pistol Monthly Plan Evergreen Phase");
+        Assert.assertNull(invoiceItem.getPrettyUsageName());
+
+        //retrieve usage item
+        invoiceItem = invoice.getInvoiceItems().stream().filter(item -> item.getInvoiceItemType() == InvoiceItemType.USAGE).findFirst().get();
+        Assert.assertNotNull(invoiceItem);
+        Assert.assertEquals(invoiceItem.getPrettyProductName(),"Pistol For Hire");
+        Assert.assertEquals(invoiceItem.getPrettyPlanName(),"Pistol Monthly Plan");
+        Assert.assertEquals(invoiceItem.getPrettyPhaseName(),"Pistol Monthly Plan Evergreen Phase");
+        Assert.assertEquals(invoiceItem.getPrettyUsageName(),"Pistol Monthly Plan Training Usage");
+    }
+
 
     public static class TestCatalogPluginApi implements CatalogPluginApi {
 
-        private final PriceOverride priceOverride;
+        private final PriceOverrideSvc priceOverride;
         private final Clock clock;
         private final InternalTenantContext internalTenantContext;
         private final InternalCallContextFactory internalCallContextFactory;
@@ -200,7 +262,7 @@ public class TestWithCatalogPlugin extends TestIntegrationBase {
         private int nbLatestCatalogVersionApiCalls;
         private int nbVersionedPluginCatalogApiCalls;
 
-        public TestCatalogPluginApi(final PriceOverride priceOverride, final Clock clock, final InternalTenantContext internalTenantContext, final InternalCallContextFactory internalCallContextFactory) throws Exception {
+        public TestCatalogPluginApi(final PriceOverrideSvc priceOverride, final Clock clock, final InternalTenantContext internalTenantContext, final InternalCallContextFactory internalCallContextFactory) throws Exception {
             this.priceOverride = priceOverride;
             this.clock = clock;
             this.internalTenantContext = internalTenantContext;
@@ -253,26 +315,20 @@ public class TestWithCatalogPlugin extends TestIntegrationBase {
             return latestCatalogUpdate;
         }
 
-        private Iterable<StandalonePluginCatalog> toStandalonePluginCatalogs(final VersionedCatalog input) {
-            return Iterables.transform(input.getVersions(), new Function<StaticCatalog, StandalonePluginCatalog>() {
-                @Override
-                public StandalonePluginCatalog apply(final StaticCatalog input) {
-
-                    final StandaloneCatalog standaloneCatalog = (StandaloneCatalog) input;
-                    return new TestModelStandalonePluginCatalog(new DateTime(input.getEffectiveDate()),
-                                                                ImmutableList.copyOf(standaloneCatalog.getSupportedCurrencies()),
-                                                                ImmutableList.<Product>copyOf(standaloneCatalog.getProducts()),
-                                                                ImmutableList.<Plan>copyOf(standaloneCatalog.getPlans()),
-                                                                standaloneCatalog.getPriceLists().getDefaultPricelist(),
-                                                                ImmutableList.<PriceList>copyOf(standaloneCatalog.getPriceLists().getChildPriceLists()),
-                                                                standaloneCatalog.getPlanRules(),
-                                                                null /* ImmutableList.<Unit>copyOf(input.getCurrentUnits()) */);
-                }
-
-                private <I, C extends I> List<I> listOf(@Nullable C[] input) {
-                    return (input != null) ? ImmutableList.<I>copyOf(input) : ImmutableList.<I>of();
-                }
-            });
+        private Iterable<StandalonePluginCatalog> toStandalonePluginCatalogs(final VersionedCatalog versionedCatalog) {
+            return versionedCatalog.getVersions()
+                    .stream()
+                    .map(input -> {
+                        final StandaloneCatalog standaloneCatalog = (StandaloneCatalog) input;
+                        return new TestModelStandalonePluginCatalog(new DateTime(input.getEffectiveDate()),
+                                                                    List.of(standaloneCatalog.getSupportedCurrencies()),
+                                                                    List.copyOf(standaloneCatalog.getProducts()),
+                                                                    List.copyOf(standaloneCatalog.getPlans()),
+                                                                    standaloneCatalog.getPriceLists().getDefaultPricelist(),
+                                                                    List.of(standaloneCatalog.getPriceLists().getChildPriceLists()),
+                                                                    standaloneCatalog.getPlanRules(),
+                                                                    null /* ImmutableList.<Unit>copyOf(input.getCurrentUnits()) */);
+                    }).collect(Collectors.toUnmodifiableList());
         }
     }
 }

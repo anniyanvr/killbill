@@ -18,7 +18,8 @@
 
 package org.killbill.billing.tenant;
 
-import javax.inject.Named;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
 
 import org.killbill.billing.GuicyKillbillTestSuiteWithEmbeddedDB;
 import org.killbill.billing.tenant.api.TenantUserApi;
@@ -30,7 +31,6 @@ import org.killbill.billing.util.config.definition.SecurityConfig;
 import org.testng.annotations.BeforeClass;
 
 import com.google.inject.Guice;
-import com.google.inject.Inject;
 import com.google.inject.Injector;
 
 public class TenantTestSuiteWithEmbeddedDb extends GuicyKillbillTestSuiteWithEmbeddedDB {

@@ -19,7 +19,7 @@ package org.killbill.billing.util.export.api;
 import java.io.OutputStream;
 import java.util.UUID;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.killbill.billing.util.api.DatabaseExportOutputStream;
 import org.killbill.billing.util.api.ExportUserApi;
@@ -44,7 +44,7 @@ public class DefaultExportUserApi implements ExportUserApi {
     @Override
     public void exportDataForAccount(final UUID accountId, final DatabaseExportOutputStream out, final CallContext context) {
         final InternalCallContext internalContext = internalCallContextFactory.createInternalCallContext(accountId, context);
-        exportDao.exportDataForAccount(out, internalContext);
+        exportDao.exportDataForAccount(out, accountId, context.getTenantId(), internalContext);
     }
 
     @Override

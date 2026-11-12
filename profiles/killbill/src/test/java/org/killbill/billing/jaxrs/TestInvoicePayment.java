@@ -20,10 +20,14 @@ package org.killbill.billing.jaxrs;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
-import org.joda.time.DateTime;
+import jakarta.inject.Inject;
+
 import org.killbill.billing.catalog.api.BillingPeriod;
 import org.killbill.billing.catalog.api.ProductCategory;
 import org.killbill.billing.client.KillBillClientException;
@@ -51,9 +55,6 @@ import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import com.google.common.collect.ImmutableList;
-import com.google.inject.Inject;
-
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
@@ -75,9 +76,12 @@ public class TestInvoicePayment extends TestJaxrsBase {
         super.beforeMethod();
         mockPaymentProviderPlugin = (MockPaymentProviderPlugin) registry.getServiceForName(PLUGIN_NAME);
     }
+
     @Test(groups = "slow", description = "Trigger payments for account with no unpaid invoices")
     public void testPayZeroInvoice() throws Exception {
-        clock.setTime(new DateTime(2012, 4, 25, 0, 3, 42, 0));
+        final ZonedDateTime newTime = ZonedDateTime.of(2012, 4, 25, 0, 3, 42, 0, ZoneId.systemDefault());
+        clock.setTime(toJodaDateTime(newTime));
+
         // No payment method
         final Account accountJson = createAccountWithExternalPaymentMethod();
         // Pay all invoices - nothing to pay
@@ -87,7 +91,8 @@ public class TestInvoicePayment extends TestJaxrsBase {
 
     @Test(groups = "slow", description = "Can pay invoices")
     public void testPayAllInvoices() throws Exception {
-        clock.setTime(new DateTime(2012, 4, 25, 0, 3, 42, 0));
+        final ZonedDateTime newTime = ZonedDateTime.of(2012, 4, 25, 0, 3, 42, 0, ZoneId.systemDefault());
+        clock.setTime(toJodaDateTime(newTime));
 
         // No payment method
         final Account accountJson = createAccountNoPMBundleAndSubscriptionAndWaitForFirstInvoice();
@@ -96,7 +101,7 @@ public class TestInvoicePayment extends TestJaxrsBase {
         assertEquals(accountApi.getPaymentsForAccount(accountJson.getAccountId(), null, requestOptions).size(), 0);
 
         // Get the invoices
-        final List<Invoice> invoices = accountApi.getInvoicesForAccount(accountJson.getAccountId(), null, null, null, requestOptions);
+        final List<Invoice> invoices = accountApi.getInvoicesForAccount(accountJson.getAccountId(), null, null, false, false, false, true, null, AuditLevel.NONE, requestOptions);
         assertEquals(invoices.size(), 2);
         final Invoice invoiceToPay = invoices.get(1);
         assertEquals(invoiceToPay.getBalance().compareTo(BigDecimal.ZERO), 1);
@@ -206,7 +211,7 @@ public class TestInvoicePayment extends TestJaxrsBase {
         final InvoiceItem adjustment = new InvoiceItem();
         adjustment.setInvoiceItemId(itemToAdjust.getInvoiceItemId());
         //null amount means full adjustment for that item
-        refund.setAdjustments(ImmutableList.<InvoiceItem>of(adjustment));
+        refund.setAdjustments(List.of(adjustment));
 
         invoicePaymentApi.createRefundWithAdjustments(paymentJson.getPaymentId(), refund, paymentJson.getPaymentMethodId(), NULL_PLUGIN_PROPERTIES, requestOptions);
         final Payment paymentAfterRefundJson = paymentApi.getPayment(paymentJson.getPaymentId(), NULL_PLUGIN_PROPERTIES, requestOptions);
@@ -235,7 +240,7 @@ public class TestInvoicePayment extends TestJaxrsBase {
         final InvoiceItem adjustment = new InvoiceItem();
         adjustment.setInvoiceItemId(itemToAdjust.getInvoiceItemId());
         adjustment.setAmount(refundAmount);
-        refund.setAdjustments(ImmutableList.<InvoiceItem>of(adjustment));
+        refund.setAdjustments(List.of(adjustment));
 
         invoicePaymentApi.createRefundWithAdjustments(paymentJson.getPaymentId(), refund, paymentJson.getPaymentMethodId(), NULL_PLUGIN_PROPERTIES, requestOptions);
         final Payment paymentAfterRefundJson = paymentApi.getPayment(paymentJson.getPaymentId(), NULL_PLUGIN_PROPERTIES, requestOptions);
@@ -266,7 +271,7 @@ public class TestInvoicePayment extends TestJaxrsBase {
         adjustment.setInvoiceItemId(itemToAdjust.getInvoiceItemId());
         // Ask for an adjustment for the full amount (bigger than the refund amount)
         adjustment.setAmount(itemToAdjust.getAmount());
-        refund.setAdjustments(ImmutableList.<InvoiceItem>of(adjustment));
+        refund.setAdjustments(List.of(adjustment));
 
         invoicePaymentApi.createRefundWithAdjustments(paymentJson.getPaymentId(), refund, paymentJson.getPaymentMethodId(), NULL_PLUGIN_PROPERTIES, requestOptions);
         final Payment paymentAfterRefundJson = paymentApi.getPayment(paymentJson.getPaymentId(), NULL_PLUGIN_PROPERTIES, requestOptions);
@@ -293,7 +298,7 @@ public class TestInvoicePayment extends TestJaxrsBase {
             invoicePayment.setPurchasedAmount(lastPayment.getPurchasedAmount());
             invoicePayment.setAccountId(lastPayment.getAccountId());
             invoicePayment.setTargetInvoiceId(lastPayment.getTargetInvoiceId());
-            final InvoicePayment payment = invoiceApi.createInstantPayment(lastPayment.getTargetInvoiceId(), invoicePayment, ImmutableList.of(), NULL_PLUGIN_PROPERTIES, requestOptions);
+            final InvoicePayment payment = invoiceApi.createInstantPayment(lastPayment.getTargetInvoiceId(), invoicePayment, Collections.emptyList(), NULL_PLUGIN_PROPERTIES, requestOptions);
             lastPayment = payment;
         }
 
@@ -317,9 +322,8 @@ public class TestInvoicePayment extends TestJaxrsBase {
     public void testWithFailedInvoicePayment() throws Exception {
 
         mockPaymentProviderPlugin.makeNextPaymentFailWithError();
-
-        final DateTime initialDate = new DateTime(2012, 4, 25, 0, 3, 42, 0);
-        clock.setDeltaFromReality(initialDate.getMillis() - clock.getUTCNow().getMillis());
+        final ZonedDateTime initialDate = ZonedDateTime.of(2012, 4, 25, 0, 3, 42, 0, ZoneId.systemDefault());
+        clock.setDeltaFromReality(initialDate.toInstant().toEpochMilli() - clock.getUTCNow().getMillis());
 
         final Account accountJson = createAccountWithPMBundleAndSubscriptionAndWaitForFirstInvoice(false);
 
@@ -357,7 +361,7 @@ public class TestInvoicePayment extends TestJaxrsBase {
 
         // Disable automatic payments
         callbackServlet.pushExpectedEvent(ExtBusEventType.TAG_CREATION);
-        accountApi.createAccountTags(accountJson.getAccountId(), ImmutableList.<UUID>of(ControlTagType.AUTO_PAY_OFF.getId()), requestOptions);
+        accountApi.createAccountTags(accountJson.getAccountId(), List.of(ControlTagType.AUTO_PAY_OFF.getId()), requestOptions);
         callbackServlet.assertListenerStatus();
 
         // Add a bundle, subscription and move the clock to get the first invoice
@@ -370,7 +374,7 @@ public class TestInvoicePayment extends TestJaxrsBase {
         clock.addDays(32);
         callbackServlet.assertListenerStatus();
 
-        final List<Invoice> invoices = accountApi.getInvoicesForAccount(accountJson.getAccountId(), null, null, null, requestOptions);
+        final List<Invoice> invoices = accountApi.getInvoicesForAccount(accountJson.getAccountId(), null, null, false, false, false, true, null, AuditLevel.NONE, requestOptions);
         assertEquals(invoices.size(), 2);
 
         final InvoicePayment invoicePayment1 = new InvoicePayment();
@@ -380,7 +384,7 @@ public class TestInvoicePayment extends TestJaxrsBase {
 
         // Pay too too much => 400
         try {
-            invoiceApi.createInstantPayment(invoicePayment1.getTargetInvoiceId(), invoicePayment1, ImmutableList.of(), NULL_PLUGIN_PROPERTIES, requestOptions);
+            invoiceApi.createInstantPayment(invoicePayment1.getTargetInvoiceId(), invoicePayment1, Collections.emptyList(), NULL_PLUGIN_PROPERTIES, requestOptions);
             Assert.fail("InvoicePayment call should fail with 400");
         } catch (final KillBillClientException e) {
             assertTrue(true);
@@ -392,12 +396,12 @@ public class TestInvoicePayment extends TestJaxrsBase {
         invoicePayment2.setTargetInvoiceId(invoices.get(1).getInvoiceId());
 
         // Just right, Yah! => 201
-        final InvoicePayment result2 = invoiceApi.createInstantPayment(invoicePayment2.getTargetInvoiceId(), invoicePayment2, ImmutableList.of(), NULL_PLUGIN_PROPERTIES, requestOptions);
+        final InvoicePayment result2 = invoiceApi.createInstantPayment(invoicePayment2.getTargetInvoiceId(), invoicePayment2, Collections.emptyList(), NULL_PLUGIN_PROPERTIES, requestOptions);
         assertEquals(result2.getTransactions().size(), 1);
         assertTrue(result2.getTransactions().get(0).getAmount().compareTo(invoices.get(1).getBalance()) == 0);
 
         // Already paid -> 204
-        final InvoicePayment result3 = invoiceApi.createInstantPayment(invoicePayment2.getTargetInvoiceId(), invoicePayment2, ImmutableList.of(), NULL_PLUGIN_PROPERTIES, requestOptions);
+        final InvoicePayment result3 = invoiceApi.createInstantPayment(invoicePayment2.getTargetInvoiceId(), invoicePayment2, Collections.emptyList(), NULL_PLUGIN_PROPERTIES, requestOptions);
         assertNull(result3);
     }
 
@@ -427,7 +431,7 @@ public class TestInvoicePayment extends TestJaxrsBase {
 
     private void verifyRefund(final InvoicePayment paymentJson, final Payment paymentAfterRefund, final BigDecimal refundAmount) throws KillBillClientException {
 
-        final List<PaymentTransaction> transactions = getPaymentTransactions(ImmutableList.of(paymentAfterRefund), TransactionType.REFUND);
+        final List<PaymentTransaction> transactions = getPaymentTransactions(List.of(paymentAfterRefund), TransactionType.REFUND);
         Assert.assertEquals(transactions.size(), 1);
 
         final PaymentTransaction refund = transactions.get(0);
@@ -436,7 +440,7 @@ public class TestInvoicePayment extends TestJaxrsBase {
         Assert.assertEquals(refund.getCurrency(), DEFAULT_CURRENCY);
         Assert.assertEquals(refund.getStatus(), TransactionStatus.SUCCESS);
         Assert.assertEquals(refund.getEffectiveDate().getYear(), clock.getUTCNow().getYear());
-        Assert.assertEquals(refund.getEffectiveDate().getMonthOfYear(), clock.getUTCNow().getMonthOfYear());
+        Assert.assertEquals(refund.getEffectiveDate().getMonthValue(), clock.getUTCNow().getMonthOfYear());
         Assert.assertEquals(refund.getEffectiveDate().getDayOfMonth(), clock.getUTCNow().getDayOfMonth());
 
         // Verify the refund via the payment API

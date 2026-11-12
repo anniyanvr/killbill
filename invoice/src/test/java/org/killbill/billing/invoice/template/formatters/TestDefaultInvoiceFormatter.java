@@ -32,6 +32,7 @@ import org.killbill.billing.invoice.InvoiceTestSuiteNoDB;
 import org.killbill.billing.invoice.api.Invoice;
 import org.killbill.billing.invoice.api.InvoiceItem;
 import org.killbill.billing.invoice.api.InvoiceItemType;
+import org.killbill.billing.invoice.api.InvoicePaymentStatus;
 import org.killbill.billing.invoice.api.InvoicePaymentType;
 import org.killbill.billing.invoice.api.InvoiceStatus;
 import org.killbill.billing.invoice.api.formatters.InvoiceFormatter;
@@ -46,7 +47,8 @@ import org.killbill.billing.invoice.model.RepairAdjInvoiceItem;
 import org.killbill.billing.invoice.template.translator.DefaultInvoiceTranslator;
 import org.killbill.billing.util.email.templates.MustacheTemplateEngine;
 import org.killbill.billing.util.template.translation.TranslatorConfig;
-import org.skife.config.ConfigurationObjectFactory;
+import org.killbill.commons.utils.locale.LocaleUtils;
+import org.skife.config.AugmentedConfigurationObjectFactory;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -63,7 +65,7 @@ public class TestDefaultInvoiceFormatter extends InvoiceTestSuiteNoDB {
         }
 
         super.beforeClass();
-        config = new ConfigurationObjectFactory(skifeConfigSource).build(TranslatorConfig.class);
+        config = new AugmentedConfigurationObjectFactory(skifeConfigSource).build(TranslatorConfig.class);
         templateEngine = new MustacheTemplateEngine();
     }
 
@@ -93,7 +95,9 @@ public class TestDefaultInvoiceFormatter extends InvoiceTestSuiteNoDB {
         Assert.assertEquals(invoice.getCreditedAmount().doubleValue(), 0.00);
 
         // Verify the merge
-        final InvoiceFormatter formatter = new DefaultInvoiceFormatter(config, invoice, Locale.US, null, resourceBundleFactory, internalCallContext);
+        final ResourceBundle bundle = resourceBundleFactory.createBundle(Locale.US, config.getCatalogBundlePath(), ResourceBundleType.CATALOG_TRANSLATION, internalCallContext);
+        final ResourceBundle defaultBundle = resourceBundleFactory.createBundle(LocaleUtils.toLocale(config.getDefaultLocale()), config.getCatalogBundlePath(), ResourceBundleType.CATALOG_TRANSLATION, internalCallContext);
+        final InvoiceFormatter formatter = new DefaultInvoiceFormatter(config.getDefaultLocale(), config.getCatalogBundlePath(), invoice, Locale.US, null, bundle, defaultBundle);
         final List<InvoiceItem> invoiceItems = formatter.getInvoiceItems();
         Assert.assertEquals(invoiceItems.size(), 1);
         Assert.assertEquals(invoiceItems.get(0).getInvoiceItemType(), InvoiceItemType.FIXED);
@@ -133,16 +137,18 @@ public class TestDefaultInvoiceFormatter extends InvoiceTestSuiteNoDB {
         invoice.addInvoiceItem(creditAdjInvoiceItem);
         invoice.addInvoiceItem(creditBalanceAdjInvoiceItem2);
         invoice.addPayment(new DefaultInvoicePayment(InvoicePaymentType.ATTEMPT, UUID.randomUUID(), invoice.getId(), clock.getUTCNow(), BigDecimal.TEN,
-                                                     Currency.USD, Currency.USD, null, true));
+                                                     Currency.USD, Currency.USD, null, InvoicePaymentStatus.SUCCESS));
         invoice.addPayment(new DefaultInvoicePayment(InvoicePaymentType.REFUND, UUID.randomUUID(), invoice.getId(), clock.getUTCNow(), BigDecimal.ONE.negate(),
-                                                     Currency.USD, Currency.USD, null, true));
+                                                     Currency.USD, Currency.USD, null, InvoicePaymentStatus.SUCCESS));
         // Check the scenario
         Assert.assertEquals(invoice.getBalance().doubleValue(), 1.00);
         Assert.assertEquals(invoice.getCreditedAmount().doubleValue(), 11.00);
         Assert.assertEquals(invoice.getRefundedAmount().doubleValue(), -1.00);
 
         // Verify the merge
-        final InvoiceFormatter formatter = new DefaultInvoiceFormatter(config, invoice, Locale.US, null, resourceBundleFactory, internalCallContext);
+        final ResourceBundle bundle = resourceBundleFactory.createBundle(Locale.US, config.getCatalogBundlePath(), ResourceBundleType.CATALOG_TRANSLATION, internalCallContext);
+        final ResourceBundle defaultBundle = resourceBundleFactory.createBundle(LocaleUtils.toLocale(config.getDefaultLocale()), config.getCatalogBundlePath(), ResourceBundleType.CATALOG_TRANSLATION, internalCallContext);
+        final InvoiceFormatter formatter = new DefaultInvoiceFormatter(config.getDefaultLocale(), config.getCatalogBundlePath(), invoice, Locale.US, null, bundle, defaultBundle);
         final List<InvoiceItem> invoiceItems = formatter.getInvoiceItems();
         Assert.assertEquals(invoiceItems.size(), 4);
         Assert.assertEquals(invoiceItems.get(0).getInvoiceItemType(), InvoiceItemType.FIXED);
@@ -509,14 +515,15 @@ public class TestDefaultInvoiceFormatter extends InvoiceTestSuiteNoDB {
         final Map<String, Object> data = new HashMap<String, Object>();
 
         final String bundlePath = "org/killbill/billing/util/template/translation/InvoiceTranslation";
-        final ResourceBundle bundle = resourceBundleFactory.createBundle(Locale.US, bundlePath, ResourceBundleType.INVOICE_TRANSLATION, internalCallContext);
+        final ResourceBundle translatorBundle = resourceBundleFactory.createBundle(Locale.US, bundlePath, ResourceBundleType.INVOICE_TRANSLATION, internalCallContext);
 
-        final DefaultInvoiceTranslator translator = new DefaultInvoiceTranslator(bundle, null);
-
+        final DefaultInvoiceTranslator translator = new DefaultInvoiceTranslator(translatorBundle, null);
         data.put("text", translator);
 
-        data.put("invoice", new DefaultInvoiceFormatter(config, invoice, Locale.US, currencyConversionApi, resourceBundleFactory, internalCallContext));
+        final ResourceBundle bundle = resourceBundleFactory.createBundle(Locale.US, config.getCatalogBundlePath(), ResourceBundleType.CATALOG_TRANSLATION, internalCallContext);
+        final ResourceBundle defaultBundle = resourceBundleFactory.createBundle(LocaleUtils.toLocale(config.getDefaultLocale()), config.getCatalogBundlePath(), ResourceBundleType.CATALOG_TRANSLATION, internalCallContext);
 
+        data.put("invoice", new DefaultInvoiceFormatter(config.getDefaultLocale(), config.getCatalogBundlePath(), invoice, Locale.US, currencyConversionApi, bundle, defaultBundle));
         final String formattedText = templateEngine.executeTemplateText(template, data);
 
         System.out.println(formattedText);
@@ -524,8 +531,10 @@ public class TestDefaultInvoiceFormatter extends InvoiceTestSuiteNoDB {
 
     private void checkOutput(final Invoice invoice, final String template, final String expected, final Locale locale) {
         final Map<String, Object> data = new HashMap<String, Object>();
-        data.put("invoice", new DefaultInvoiceFormatter(config, invoice, locale, null, resourceBundleFactory, internalCallContext));
+        final ResourceBundle bundle = resourceBundleFactory.createBundle(locale, config.getCatalogBundlePath(), ResourceBundleType.CATALOG_TRANSLATION, internalCallContext);
+        final ResourceBundle defaultBundle = resourceBundleFactory.createBundle(LocaleUtils.toLocale(config.getDefaultLocale()), config.getCatalogBundlePath(), ResourceBundleType.CATALOG_TRANSLATION, internalCallContext);
 
+        data.put("invoice", new DefaultInvoiceFormatter(config.getDefaultLocale(), config.getCatalogBundlePath(), invoice, locale, null, bundle, defaultBundle));
         final String formattedText = templateEngine.executeTemplateText(template, data);
         Assert.assertEquals(formattedText, expected);
     }

@@ -1,7 +1,8 @@
 /*
- * Copyright 2010-2013 Ning, Inc.
- * Copyright 2014 Groupon, Inc
- * Copyright 2014 The Billing Project, LLC
+ * Copyright 2010-2014 Ning, Inc.
+ * Copyright 2014-2020 Groupon, Inc
+ * Copyright 2020-2024 Equinix, Inc
+ * Copyright 2014-2024 The Billing Project, LLC
  *
  * The Billing Project licenses this file to you under the Apache License, version 2.0
  * (the "License"); you may not use this file except in compliance with the
@@ -19,16 +20,22 @@
 package org.killbill.billing.jaxrs;
 
 import java.math.BigDecimal;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import javax.annotation.Nullable;
+import jakarta.inject.Inject;
 
 import org.killbill.billing.ErrorCode;
 import org.killbill.billing.ObjectType;
 import org.killbill.billing.catalog.api.Currency;
 import org.killbill.billing.client.KillBillClientException;
+import org.killbill.billing.client.RequestOptions;
 import org.killbill.billing.client.model.Accounts;
 import org.killbill.billing.client.model.AuditLogs;
 import org.killbill.billing.client.model.CustomFields;
@@ -40,6 +47,7 @@ import org.killbill.billing.client.model.gen.CustomField;
 import org.killbill.billing.client.model.gen.PaymentMethod;
 import org.killbill.billing.client.model.gen.PaymentMethodPluginDetail;
 import org.killbill.billing.client.model.gen.Tag;
+import org.killbill.billing.jaxrs.resources.JaxrsResource;
 import org.killbill.billing.osgi.api.OSGIServiceRegistration;
 import org.killbill.billing.payment.plugin.api.PaymentPluginApi;
 import org.killbill.billing.payment.provider.MockPaymentProviderPlugin;
@@ -49,9 +57,6 @@ import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
-
-import com.google.common.collect.ImmutableList;
-import com.google.inject.Inject;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
@@ -84,6 +89,25 @@ public class TestAccount extends TestJaxrsBase {
         }
 
         mockPaymentProviderPlugin.clear();
+    }
+
+    @Test(groups = "slow", description = "Verify encoded headers")
+    public void testEncodedHeaders() throws Exception {
+        final String comment = "マリオありがとう！ しかし、私たちの王女は別の城にいます！";
+        final RequestOptions requestOptions = RequestOptions.builder()
+                                                            // All 3 headers will be decoded, so non encoded values might become corrupted (e.g. Toto -> Nh)
+                                                            .withCreatedBy(createdBy)
+                                                            .withReason(reason)
+                                                            .withComment(Base64.getEncoder().encodeToString(comment.getBytes(StandardCharsets.UTF_8)))
+                                                            .withHeader("X-Killbill-Encoding", "base64")
+                                                            .withFollowLocation(true)
+                                                            .withQueryParamsForFollow(Map.of(JaxrsResource.QUERY_AUDIT, List.of(AuditLevel.MINIMAL.name())))
+                                                            .build();
+        final Account emptyAccount = new Account();
+
+        final Account account = accountApi.createAccount(emptyAccount, requestOptions);
+        Assert.assertNotNull(account.getExternalKey());
+        Assert.assertEquals(account.getAuditLogs().get(0).getComments(), comment);
     }
 
     @Test(groups = "slow", description = "Verify no PII data is required")
@@ -154,6 +178,24 @@ public class TestAccount extends TestJaxrsBase {
 
         // Try search endpoint
         searchAccount(input, null);
+    }
+
+    @Test(groups = "slow", description = "Can use advanced queries to search accounts")
+    public void testAccountAdvancedSearch() throws Exception {
+        final Account input = createAccount();
+
+        final List<Account> accounts1 = accountApi.searchAccounts("_q=1&address2=Poitier&currency=USD", requestOptions);
+        Assert.assertEquals(accounts1.size(), 1);
+        Assert.assertEquals(accounts1.get(0).getAccountId(), input.getAccountId());
+        Assert.assertEquals(accounts1.get(0).getExternalKey(), input.getExternalKey());
+
+        final List<Account> accounts2 = accountApi.searchAccounts(URLEncoder.encode("_q=1&address2=Poitier&currency[neq]=MXN", StandardCharsets.UTF_8), requestOptions);
+        Assert.assertEquals(accounts2.size(), 1);
+        Assert.assertEquals(accounts2.get(0).getAccountId(), input.getAccountId());
+        Assert.assertEquals(accounts2.get(0).getExternalKey(), input.getExternalKey());
+
+        Assert.assertEquals(accountApi.searchAccounts("_q=1&address2=Poitier&currency=MXN", requestOptions).size(), 0);
+        Assert.assertEquals(accountApi.searchAccounts("_q=1&address2=Tours", requestOptions).size(), 0);
     }
 
     @Test(groups = "slow", description = "Can reset account notes using flag treatNullAsReset")
@@ -326,7 +368,7 @@ public class TestAccount extends TestJaxrsBase {
         // FINALLY TRY TO REMOVE AUTO_PAY_OFF WITH NO DEFAULT PAYMENT METHOD ON ACCOUNT
         //
         try {
-            accountApi.deleteAccountTags(accountJson.getAccountId(), ImmutableList.<UUID>of(new UUID(0, 1)), requestOptions);
+            accountApi.deleteAccountTags(accountJson.getAccountId(), List.of(new UUID(0, 1)), requestOptions);
         } catch (final KillBillClientException e) {
             Assert.assertTrue(e.getBillingException().getCode() == ErrorCode.TAG_CANNOT_BE_REMOVED.getCode());
         }
@@ -348,7 +390,7 @@ public class TestAccount extends TestJaxrsBase {
         final UUID autoPayOffId = new UUID(0, 1);
 
         // Add a tag
-        accountApi.createAccountTags(input.getAccountId(), ImmutableList.<UUID>of(autoPayOffId), requestOptions);
+        accountApi.createAccountTags(input.getAccountId(), List.of(autoPayOffId), requestOptions);
 
         // Retrieves all tags
         final List<Tag> tags1 = accountApi.getAccountTags(input.getAccountId(), false, AuditLevel.FULL, requestOptions);
@@ -356,10 +398,10 @@ public class TestAccount extends TestJaxrsBase {
         Assert.assertEquals(tags1.get(0).getTagDefinitionId(), autoPayOffId);
 
         // Verify adding the same tag a second time doesn't do anything
-        accountApi.createAccountTags(input.getAccountId(), ImmutableList.<UUID>of(autoPayOffId), requestOptions);
+        accountApi.createAccountTags(input.getAccountId(), List.of(autoPayOffId), requestOptions);
 
         // Retrieves all tags again
-        accountApi.createAccountTags(input.getAccountId(), ImmutableList.<UUID>of(autoPayOffId), requestOptions);
+        accountApi.createAccountTags(input.getAccountId(), List.of(autoPayOffId), requestOptions);
         final List<Tag> tags2 = accountApi.getAccountTags(input.getAccountId(), true, AuditLevel.FULL, requestOptions);
         Assert.assertEquals(tags2, tags1);
 

@@ -22,6 +22,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Stack;
 
+import org.killbill.commons.utils.Preconditions;
 import org.killbill.commons.profiling.ProfilingData;
 import org.killbill.commons.profiling.ProfilingData.LogLineType;
 import org.killbill.commons.profiling.ProfilingData.ProfilingDataItem;
@@ -29,10 +30,9 @@ import org.killbill.commons.profiling.ProfilingData.ProfilingDataItem;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.google.common.base.Preconditions;
-import io.swagger.annotations.ApiModel;
+import io.swagger.v3.oas.annotations.media.Schema;
 
-@ApiModel(value="ProfilingData")
+@Schema(name = "ProfilingData")
 public class ProfilingDataJson {
 
     private final List<ProfilingDataJsonItem> rawData;
@@ -75,7 +75,7 @@ public class ProfilingDataJson {
                 jsonItem.setDurationUsec(nanoToMicro(cur.getTimestampNsec()) - jsonItem.getStartUsec());
             }
         }
-        Preconditions.checkState(stack.isEmpty());
+        Preconditions.checkState(stack.isEmpty(), "stack is not empty");
         this.rawData = root;
     }
 
@@ -83,7 +83,7 @@ public class ProfilingDataJson {
         return rawData;
     }
 
-    public class ProfilingDataJsonItem {
+    public static class ProfilingDataJsonItem {
 
         private final String name;
         private final Long startUsec;

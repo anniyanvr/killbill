@@ -1,7 +1,8 @@
 /*
- * Copyright 2010-2013 Ning, Inc.
- * Copyright 2014-2019 Groupon, Inc
- * Copyright 2014-2019 The Billing Project, LLC
+ * Copyright 2010-2014 Ning, Inc.
+ * Copyright 2014-2020 Groupon, Inc
+ * Copyright 2020-2024 Equinix, Inc
+ * Copyright 2014-2024 The Billing Project, LLC
  *
  * The Billing Project licenses this file to you under the Apache License, version 2.0
  * (the "License"); you may not use this file except in compliance with the
@@ -18,11 +19,16 @@
 
 package org.killbill.billing.util.tag.dao;
 
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
-import javax.inject.Named;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
 
 import org.killbill.billing.BillingExceptionBase;
 import org.killbill.billing.ErrorCode;
@@ -47,6 +53,8 @@ import org.killbill.billing.util.entity.dao.EntitySqlDao;
 import org.killbill.billing.util.entity.dao.EntitySqlDaoTransactionWrapper;
 import org.killbill.billing.util.entity.dao.EntitySqlDaoTransactionalJdbiWrapper;
 import org.killbill.billing.util.entity.dao.EntitySqlDaoWrapperFactory;
+import org.killbill.billing.util.entity.dao.SearchQuery;
+import org.killbill.billing.util.entity.dao.SqlOperator;
 import org.killbill.billing.util.optimizer.BusOptimizer;
 import org.killbill.billing.util.tag.ControlTagType;
 import org.killbill.billing.util.tag.Tag;
@@ -57,12 +65,7 @@ import org.skife.jdbi.v2.IDBI;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.base.Predicate;
-import com.google.common.collect.Collections2;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
-import com.google.inject.Inject;
-
+import static org.killbill.billing.util.entity.dao.SearchQuery.SEARCH_QUERY_MARKER;
 import static org.killbill.billing.util.glue.IDBISetup.MAIN_RO_IDBI_NAMED;
 
 public class DefaultTagDao extends EntityDaoBase<TagModelDao, Tag, TagApiException> implements TagDao {
@@ -100,12 +103,9 @@ public class DefaultTagDao extends EntityDaoBase<TagModelDao, Tag, TagApiExcepti
     @Override
     public List<TagModelDao> getTagsForAccountType(final ObjectType objectType, final boolean includedDeleted, final InternalTenantContext internalTenantContext) {
         final List<TagModelDao> allTags = getTagsForAccount(includedDeleted, internalTenantContext);
-        return ImmutableList.<TagModelDao>copyOf(Collections2.filter(allTags, new Predicate<TagModelDao>() {
-            @Override
-            public boolean apply(final TagModelDao input) {
-                return input.getObjectType() == objectType;
-            }
-        }));
+        return allTags.stream()
+                .filter(input -> input.getObjectType() == objectType)
+                .collect(Collectors.toUnmodifiableList());
     }
 
     @Override
@@ -170,14 +170,8 @@ public class DefaultTagDao extends EntityDaoBase<TagModelDao, Tag, TagApiExcepti
 
     @Override
     protected boolean checkEntityAlreadyExists(final EntitySqlDao<TagModelDao, Tag> transactional, final TagModelDao entity, final InternalCallContext context) {
-        return Iterables.find(transactional.getByAccountRecordId(context),
-                              new Predicate<TagModelDao>() {
-                                  @Override
-                                  public boolean apply(final TagModelDao existingTag) {
-                                      return entity.equals(existingTag) || entity.isSame(existingTag);
-                                  }
-                              },
-                              null) != null;
+        return transactional.getByAccountRecordId(context).stream()
+                .anyMatch(existingTag -> entity.equals(existingTag) || entity.isSame(existingTag));
     }
 
     @Override
@@ -207,14 +201,10 @@ public class DefaultTagDao extends EntityDaoBase<TagModelDao, Tag, TagApiExcepti
         transactionalSqlDao.execute(false, TagApiException.class, getCreateEntitySqlDaoTransactionWrapper(entity, context));
     }
 
-    private void validateApplicableObjectTypes(final UUID tagDefinitionId, final ObjectType objectType) throws TagApiException {
-
-        final ControlTagType controlTagType = Iterables.tryFind(ImmutableList.<ControlTagType>copyOf(ControlTagType.values()), new Predicate<ControlTagType>() {
-            @Override
-            public boolean apply(final ControlTagType input) {
-                return input.getId().equals(tagDefinitionId);
-            }
-        }).orNull();
+    private void validateApplicableObjectTypes(final UUID tagDefinitionId, final ObjectType objectType) {
+        final ControlTagType controlTagType = Stream.of(ControlTagType.values())
+                .filter(input -> input.getId().equals(tagDefinitionId))
+                .findFirst().orElse(null);
 
         if (controlTagType != null && !controlTagType.getApplicableObjectTypes().contains(objectType)) {
             // TODO Add missing ErrorCode.TAG_NOT_APPLICABLE
@@ -234,18 +224,25 @@ public class DefaultTagDao extends EntityDaoBase<TagModelDao, Tag, TagApiExcepti
                 final TagDefinitionModelDao tagDefinition = getTagDefinitionFromTransaction(tagDefinitionId, entitySqlDaoWrapperFactory, context);
                 final TagSqlDao transactional = entitySqlDaoWrapperFactory.become(TagSqlDao.class);
                 final List<TagModelDao> tags = transactional.getTagsForObject(objectId, objectType, context);
-                TagModelDao tag = null;
+                final List<TagModelDao> toBeDeleted = new ArrayList<>();
                 for (final TagModelDao cur : tags) {
-                    if (cur.getTagDefinitionId().equals(tagDefinitionId)) {
-                        tag = cur;
-                        break;
+                    if (cur.getTagDefinitionId().equals(tagDefinitionId) && cur.getIsActive()) {
+                        toBeDeleted.add(cur);
                     }
                 }
-                if (tag == null) {
+                if (toBeDeleted.size() == 0) {
                     throw new TagApiException(ErrorCode.TAG_DOES_NOT_EXIST, tagDefinition.getName());
                 }
-                // Delete the tag
-                transactional.markTagAsDeleted(tag.getId().toString(), context);
+
+                // Delete the tags - normal case we should have only 1, but to harden the code, we remove all
+                // and keep a reference on the first one for the event.
+                TagModelDao tag = null;
+                for (final TagModelDao cur : toBeDeleted) {
+                    if (tag == null) {
+                        tag = cur;
+                    }
+                    transactional.markTagAsDeleted(cur.getId().toString(), context);
+                }
 
                 postBusEventFromTransaction(tag, tag, ChangeType.DELETE, entitySqlDaoWrapperFactory, context);
                 return null;

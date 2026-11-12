@@ -29,10 +29,8 @@ import java.util.UUID;
 
 import org.killbill.billing.invoice.api.InvoiceItem;
 import org.killbill.billing.invoice.api.InvoiceItemType;
-
-import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
-import com.google.common.collect.Iterables;
+import org.killbill.commons.utils.Preconditions;
+import org.killbill.commons.utils.collect.Iterables;
 
 /**
  * Tree of invoice items for a given account.
@@ -59,13 +57,16 @@ public class AccountItemTree {
 
     private boolean isBuilt;
 
-    public AccountItemTree(final UUID accountId, final UUID targetInvoiceId) {
+    private int prorationFixedDays;
+
+    public AccountItemTree(final UUID accountId, final UUID targetInvoiceId, final int prorationFixedDays) {
         this.accountId = accountId;
         this.targetInvoiceId = targetInvoiceId;
         this.subscriptionItemTree = new HashMap<UUID, SubscriptionItemTree>();
         this.isBuilt = false;
         this.allExistingItems = new LinkedList<InvoiceItem>();
         this.pendingItemAdj = new LinkedList<InvoiceItem>();
+        this.prorationFixedDays = prorationFixedDays;
     }
 
     /**
@@ -74,7 +75,7 @@ public class AccountItemTree {
     public void build() {
         Preconditions.checkState(!isBuilt);
 
-        if (pendingItemAdj.size() > 0) {
+        if (!pendingItemAdj.isEmpty()) {
             for (final InvoiceItem item : pendingItemAdj) {
                 addExistingItem(item, true);
             }
@@ -121,7 +122,7 @@ public class AccountItemTree {
         }
 
         if (!subscriptionItemTree.containsKey(subscriptionId)) {
-            subscriptionItemTree.put(subscriptionId, new SubscriptionItemTree(subscriptionId, targetInvoiceId));
+            subscriptionItemTree.put(subscriptionId, new SubscriptionItemTree(subscriptionId, targetInvoiceId, prorationFixedDays));
         }
         final SubscriptionItemTree tree = subscriptionItemTree.get(subscriptionId);
         tree.addItem(existingItem);
@@ -143,7 +144,7 @@ public class AccountItemTree {
             final UUID subscriptionId = getSubscriptionId(item, null);
             SubscriptionItemTree tree = subscriptionItemTree.get(subscriptionId);
             if (tree == null) {
-                tree = new SubscriptionItemTree(subscriptionId, targetInvoiceId);
+                tree = new SubscriptionItemTree(subscriptionId, targetInvoiceId, prorationFixedDays);
                 subscriptionItemTree.put(subscriptionId, tree);
             }
             tree.mergeProposedItem(item);
@@ -183,12 +184,9 @@ public class AccountItemTree {
     }
 
     private InvoiceItem getLinkedInvoiceItem(final InvoiceItem item, final Iterable<InvoiceItem> allItems) {
-        return Iterables.tryFind(allItems, new Predicate<InvoiceItem>() {
-            @Override
-            public boolean apply(final InvoiceItem input) {
-                return input.getId().equals(item.getLinkedItemId());
-            }
-        }).orNull();
+        return Iterables.toStream(allItems)
+                .filter(input -> input.getId().equals(item.getLinkedItemId()))
+                .findFirst().orElse(null);
     }
 
     @Override

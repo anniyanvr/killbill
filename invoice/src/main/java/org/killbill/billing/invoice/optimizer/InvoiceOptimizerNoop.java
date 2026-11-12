@@ -22,7 +22,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.UUID;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.joda.time.Period;
 import org.killbill.billing.callcontext.InternalCallContext;
@@ -53,16 +53,11 @@ public class InvoiceOptimizerNoop extends InvoiceOptimizerBase {
 
         logDisabledFeatureIfNeeded(callContext);
         final List<Invoice> existingInvoices = new LinkedList<Invoice>();
-        final List<InvoiceModelDao> invoicesByAccount = invoiceDao.getInvoicesByAccount(false, callContext);
+        final List<InvoiceModelDao> invoicesByAccount = invoiceDao.getInvoicesByAccount(false, true, callContext);
         for (final InvoiceModelDao invoiceModelDao : invoicesByAccount) {
             existingInvoices.add(new DefaultInvoice(invoiceModelDao));
         }
-        return new AccountInvoices(null, existingInvoices);
-    }
-
-    @Override
-    public boolean rescheduleProcessAccount(final UUID accountId, final InternalCallContext context) {
-        return false;
+        return new AccountInvoices(null, null, existingInvoices);
     }
 
     private void logDisabledFeatureIfNeeded(final InternalCallContext callContext) {

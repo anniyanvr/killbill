@@ -20,13 +20,12 @@ package org.killbill.billing.beatrix.integration;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-
-import javax.annotation.Nullable;
+import java.util.stream.Collectors;
 
 import org.joda.time.DateTime;
 import org.joda.time.LocalDate;
@@ -50,11 +49,6 @@ import org.killbill.billing.payment.api.TransactionStatus;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
-
-import com.google.common.base.Function;
-import com.google.common.base.Predicate;
-import com.google.common.collect.Collections2;
-import com.google.common.collect.ImmutableList;
 
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
@@ -116,7 +110,7 @@ public class TestPaymentRefund extends TestIntegrationBase {
     public void testFailedRefundWithInvoiceAdjustment() throws Exception {
         try {
             invoicePaymentApi.createRefundForInvoicePayment(true, null, account, payment.getId(), payment.getPurchasedAmount(), payment.getCurrency(), null, UUID.randomUUID().toString(),
-                                                            ImmutableList.<PluginProperty>of(), PAYMENT_OPTIONS, callContext);
+                                                            Collections.emptyList(), PAYMENT_OPTIONS, callContext);
             fail("Refund with invoice adjustment should now throw an Exception");
         } catch (final PaymentApiException e) {
             Assert.assertEquals(e.getCause(), null);
@@ -157,9 +151,9 @@ public class TestPaymentRefund extends TestIntegrationBase {
         final DefaultEntitlement bpEntitlement = createBaseEntitlementAndCheckForCompletion(account.getId(), "externalKey", "Shotgun", ProductCategory.BASE, BillingPeriod.MONTHLY, NextEvent.CREATE, NextEvent.BLOCK, NextEvent.INVOICE);
         assertNotNull(bpEntitlement);
 
-        invoiceChecker.checkInvoice(account.getId(), ++invoiceItemCount, callContext, new ExpectedInvoiceItemCheck(initialCreationDate.toLocalDate(), null, InvoiceItemType.FIXED, new BigDecimal("0")));
-        // No end date for the trial item (fixed price of zero), and CTD should be today (i.e. when the trial started)
-        invoiceChecker.checkChargedThroughDate(bpEntitlement.getId(), clock.getUTCToday(), callContext);
+        invoiceChecker.checkInvoice(account.getId(), ++invoiceItemCount, callContext, new ExpectedInvoiceItemCheck(initialCreationDate.toLocalDate(), initialCreationDate.plusDays(30).toLocalDate(), InvoiceItemType.FIXED, new BigDecimal("0")));
+        // Trial item (fixed price of zero) has end date corresponding to end of TRIAL phase, CTD should also be set to end of TRIAL phase
+        invoiceChecker.checkChargedThroughDate(bpEntitlement.getId(), initialCreationDate.plusDays(30).toLocalDate(), callContext);
 
         setDateAndCheckForCompletion(new DateTime(2012, 3, 2, 23, 59, 0, 0, testTimeZone), NextEvent.PHASE, NextEvent.INVOICE, NextEvent.PAYMENT, NextEvent.INVOICE_PAYMENT);
         invoice = invoiceChecker.checkInvoice(account.getId(), ++invoiceItemCount, callContext, new ExpectedInvoiceItemCheck(new LocalDate(2012, 3, 2),
@@ -174,18 +168,11 @@ public class TestPaymentRefund extends TestIntegrationBase {
         payment = paymentChecker.checkPayment(account.getId(), 1, callContext, new ExpectedPaymentCheck(new LocalDate(2012, 3, 2), new BigDecimal("233.82"), TransactionStatus.SUCCESS, invoice.getId(), Currency.USD));
 
         // Filter and extract UUId from all Recuring invoices
-        invoiceItems = new HashSet<UUID>(Collections2.transform(Collections2.filter(invoice.getInvoiceItems(), new Predicate<InvoiceItem>() {
-            @Override
-            public boolean apply(@Nullable final InvoiceItem invoiceItem) {
-                return invoiceItem.getInvoiceItemType() == InvoiceItemType.RECURRING;
-            }
-        }), new Function<InvoiceItem, UUID>() {
-            @Nullable
-            @Override
-            public UUID apply(@Nullable final InvoiceItem invoiceItem) {
-                return invoiceItem.getId();
-            }
-        }));
+        invoiceItems = invoice.getInvoiceItems()
+                .stream()
+                .filter(invoiceItem -> invoiceItem.getInvoiceItemType() == InvoiceItemType.RECURRING)
+                .map(InvoiceItem::getId)
+                .collect(Collectors.toUnmodifiableSet());
     }
 }
 

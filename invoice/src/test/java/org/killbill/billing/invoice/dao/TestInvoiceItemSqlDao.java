@@ -32,8 +32,6 @@ import org.killbill.billing.util.dao.CounterMappings;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
-import com.google.common.collect.ImmutableList;
-
 public class TestInvoiceItemSqlDao extends InvoiceTestSuiteWithEmbeddedDB {
 
     @Test(groups = "slow")
@@ -46,22 +44,24 @@ public class TestInvoiceItemSqlDao extends InvoiceTestSuiteWithEmbeddedDB {
                                            null, null, null, null, null, new LocalDate(), null, BigDecimal.ONE, null, Currency.USD, null), internalCallContext);
 
         // Update all fields
-        dao.updateItemFields(invoiceItemId.toString(), new BigDecimal("2.00"), "new description", "new items", internalCallContext);
+        dao.updateItemFields(invoiceItemId.toString(), new BigDecimal("2.00"), BigDecimal.ONE, "new description", BigDecimal.TEN, "new items", internalCallContext);
 
         InvoiceItemModelDao UpdatedItem = dao.getById(invoiceItemId.toString(), internalCallContext);
         Assert.assertTrue(UpdatedItem.getAmount().compareTo(new BigDecimal("2.00")) == 0);
+        Assert.assertTrue(UpdatedItem.getRate().compareTo(BigDecimal.ONE) == 0);
         Assert.assertEquals(UpdatedItem.getDescription(), "new description");
+        Assert.assertTrue(UpdatedItem.getQuantity().compareTo(BigDecimal.TEN) == 0);
         Assert.assertEquals(UpdatedItem.getItemDetails(), "new items");
 
         // Update just amount
-        dao.updateItemFields(invoiceItemId.toString(), new BigDecimal("3.00"), null, null, internalCallContext);
+        dao.updateItemFields(invoiceItemId.toString(), new BigDecimal("3.00"), null,null, null, null, internalCallContext);
         UpdatedItem = dao.getById(invoiceItemId.toString(), internalCallContext);
         Assert.assertTrue(UpdatedItem.getAmount().compareTo(new BigDecimal("3.00")) == 0);
         Assert.assertEquals(UpdatedItem.getDescription(), "new description");
         Assert.assertEquals(UpdatedItem.getItemDetails(), "new items");
 
         // Update just description
-        dao.updateItemFields(invoiceItemId.toString(), null, "newer description", null, internalCallContext);
+        dao.updateItemFields(invoiceItemId.toString(), null, null,"newer description", null, null, internalCallContext);
         UpdatedItem = dao.getById(invoiceItemId.toString(), internalCallContext);
         Assert.assertTrue(UpdatedItem.getAmount().compareTo(new BigDecimal("3.00")) == 0);
         Assert.assertEquals(UpdatedItem.getDescription(), "newer description");
@@ -161,7 +161,7 @@ public class TestInvoiceItemSqlDao extends InvoiceTestSuiteWithEmbeddedDB {
                                                                     null, null, null, null, null, new LocalDate(), null, BigDecimal.ONE, null, Currency.USD, item4.getId());
         invoiceItemSqlDao.create(repair4, internalCallContext);
 
-        final Iterable<CounterMappings> repairedMapRes = invoiceItemSqlDao.getRepairMap(ImmutableList.of(invoice1.getId().toString(), invoice2.getId().toString(), invoice3.getId().toString(), invoice4.getId().toString()), internalCallContext);
+        final Iterable<CounterMappings> repairedMapRes = invoiceItemSqlDao.getRepairMap(List.of(invoice1.getId().toString(), invoice2.getId().toString(), invoice3.getId().toString(), invoice4.getId().toString()), internalCallContext);
         final Map<String, Integer> repairedMap = CounterMappings.toMap(repairedMapRes);
         Assert.assertEquals(repairedMap.size(), 2);
         Assert.assertEquals(repairedMap.get(invoice1.getId().toString()), Integer.valueOf(1));

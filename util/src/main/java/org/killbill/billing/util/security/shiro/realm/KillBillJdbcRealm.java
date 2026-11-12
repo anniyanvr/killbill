@@ -17,8 +17,8 @@
 
 package org.killbill.billing.util.security.shiro.realm;
 
-import javax.inject.Inject;
-import javax.inject.Named;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
 import javax.sql.DataSource;
 
 import org.apache.shiro.realm.jdbc.JdbcRealm;
@@ -29,9 +29,9 @@ import org.killbill.billing.util.security.shiro.KillbillCredentialsMatcher;
 
 public class KillBillJdbcRealm extends JdbcRealm {
 
-    protected static final String KILLBILL_SALTED_AUTHENTICATION_QUERY = "select password, password_salt from users where username = ? and is_active = '1'";
-    protected static final String KILLBILL_USER_ROLES_QUERY = "select role_name from user_roles where username = ? and is_active = '1'";
-    protected static final String KILLBILL_PERMISSIONS_QUERY = "select permission from roles_permissions where role_name = ? and is_active = '1'";
+    protected static final String KILLBILL_SALTED_AUTHENTICATION_QUERY = "select password, password_salt from users where username = ? and is_active = TRUE";
+    protected static final String KILLBILL_USER_ROLES_QUERY = "select role_name from user_roles where username = ? and is_active = TRUE";
+    protected static final String KILLBILL_PERMISSIONS_QUERY = "select permission from roles_permissions where role_name = ? and is_active = TRUE";
 
     private final DataSource dataSource;
     private final SecurityConfig securityConfig;
@@ -45,6 +45,9 @@ public class KillBillJdbcRealm extends JdbcRealm {
         // TODO Enable when we add support for cache invalidation
         // See JavaDoc warning: https://shiro.apache.org/static/1.2.3/apidocs/org/apache/shiro/realm/AuthenticatingRealm.html
         //setAuthenticationCachingEnabled(true);
+
+        // See https://issues.apache.org/jira/browse/SHIRO-552 and https://github.com/apache/shiro/pull/138
+        setSaltIsBase64Encoded(false);
 
         // Tweak JdbcRealm defaults
         setPermissionsLookupEnabled(true);

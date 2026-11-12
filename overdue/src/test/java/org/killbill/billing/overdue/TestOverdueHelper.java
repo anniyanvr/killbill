@@ -23,6 +23,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import jakarta.inject.Inject;
+
 import org.joda.time.DateTimeZone;
 import org.joda.time.LocalDate;
 import org.killbill.billing.ObjectType;
@@ -45,15 +47,13 @@ import org.killbill.billing.util.tag.Tag;
 import org.mockito.Mockito;
 import org.testng.Assert;
 
-import com.google.inject.Inject;
-
 public class TestOverdueHelper {
 
     private final String configXml =
             "<overdueConfig>" +
             "   <accountOverdueStates>" +
             "       <initialReevaluationInterval>" +
-            "           <unit>DAYS</unit><number>100</number>" +
+            "           <unit>DAYS</unit><number>30</number>" +
             "       </initialReevaluationInterval>" +
             "       <state name=\"OD3\">" +
             "           <condition>" +
@@ -75,7 +75,7 @@ public class TestOverdueHelper {
             "           <blockChanges>true</blockChanges>" +
             "           <disableEntitlementAndChangesBlocked>true</disableEntitlementAndChangesBlocked>" +
             "           <autoReevaluationInterval>" +
-            "               <unit>DAYS</unit><number>5</number>" +
+            "               <unit>DAYS</unit><number>10</number>" +
             "           </autoReevaluationInterval>" +
             "       </state>" +
             "       <state name=\"OD1\">" +
@@ -89,7 +89,7 @@ public class TestOverdueHelper {
             "           <blockChanges>true</blockChanges>" +
             "           <disableEntitlementAndChangesBlocked>false</disableEntitlementAndChangesBlocked>" +
             "           <autoReevaluationInterval>" +
-            "               <unit>DAYS</unit><number>100</number>" + // this number is intentionally too high
+            "               <unit>DAYS</unit><number>10</number>" + // this number is intentionally too high
             "           </autoReevaluationInterval>" +
             "       </state>" +
             "   </accountOverdueStates>" +

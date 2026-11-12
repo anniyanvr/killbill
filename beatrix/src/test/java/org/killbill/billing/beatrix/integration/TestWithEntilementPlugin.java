@@ -21,7 +21,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.joda.time.LocalDate;
 import org.killbill.billing.account.api.Account;
@@ -119,7 +119,7 @@ public class TestWithEntilementPlugin extends TestIntegrationBase {
         //
         // Create original subscription (Trial PHASE) -> $0 invoice.
         final DefaultEntitlement bpSubscription = createBaseEntitlementAndCheckForCompletion(account.getId(), "bundleKey", "Shotgun", ProductCategory.BASE, BillingPeriod.MONTHLY, NextEvent.CREATE, NextEvent.BLOCK, NextEvent.INVOICE);
-        invoiceChecker.checkInvoice(account.getId(), 1, callContext, new ExpectedInvoiceItemCheck(new LocalDate(2012, 4, 1), null, InvoiceItemType.FIXED, new BigDecimal("0")));
+        invoiceChecker.checkInvoice(account.getId(), 1, callContext, new ExpectedInvoiceItemCheck(new LocalDate(2012, 4, 1), new LocalDate(2012, 5, 1), InvoiceItemType.FIXED, new BigDecimal("0")));
         subscriptionChecker.checkSubscriptionCreated(bpSubscription.getId(), internalCallContext);
 
 
@@ -146,7 +146,7 @@ public class TestWithEntilementPlugin extends TestIntegrationBase {
         @Override
         public PriorEntitlementResult priorCall(final EntitlementContext entitlementContext, final Iterable<PluginProperty> properties) throws EntitlementPluginApiException {
             if (planPhasePriceOverride != null) {
-                final EntitlementSpecifier entitlementSpecifier = new DefaultEntitlementSpecifier(entitlementContext.getBaseEntitlementWithAddOnsSpecifiers().iterator().next().getEntitlementSpecifier().iterator().next().getPlanPhaseSpecifier(), null, null,  planPhasePriceOverride);
+                final EntitlementSpecifier entitlementSpecifier = new DefaultEntitlementSpecifier(entitlementContext.getBaseEntitlementWithAddOnsSpecifiers().iterator().next().getEntitlementSpecifier().iterator().next().getPlanPhaseSpecifier(), null, null, null, planPhasePriceOverride);
                 final List<EntitlementSpecifier> entitlementSpecifiers = new ArrayList<EntitlementSpecifier>();
                 entitlementSpecifiers.add(entitlementSpecifier);
 

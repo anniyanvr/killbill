@@ -30,7 +30,6 @@ import org.killbill.billing.callcontext.InternalCallContext;
 import org.killbill.billing.callcontext.InternalTenantContext;
 import org.killbill.billing.catalog.api.BillingActionPolicy;
 import org.killbill.billing.catalog.api.CatalogApiException;
-import org.killbill.billing.catalog.api.StaticCatalog;
 import org.killbill.billing.catalog.api.VersionedCatalog;
 import org.killbill.billing.entitlement.api.EntitlementAOStatusDryRun;
 import org.killbill.billing.entitlement.api.EntitlementSpecifier;
@@ -64,6 +63,8 @@ public interface SubscriptionBaseInternalApi {
     public List<SubscriptionBaseBundle> getBundlesForKey(String bundleKey, InternalTenantContext context);
 
     public Pagination<SubscriptionBaseBundle> getBundles(Long offset, Long limit, InternalTenantContext context);
+    
+    public Pagination<SubscriptionBaseBundle> getBundlesForAccount(Long offset, Long limit, InternalTenantContext context);
 
     public Pagination<SubscriptionBaseBundle> searchBundles(String searchKey, Long offset, Long limit, InternalTenantContext context);
 
@@ -74,18 +75,17 @@ public interface SubscriptionBaseInternalApi {
     public List<SubscriptionBase> getSubscriptionsForBundle(UUID bundleId, DryRunArguments dryRunArguments, InternalTenantContext context)
             throws SubscriptionBaseApiException;
 
-    // TODO_CATALOG revisit which apis should take a Catalog
-    public Map<UUID, List<SubscriptionBase>> getSubscriptionsForAccount(VersionedCatalog catalog, final InternalTenantContext context) throws SubscriptionBaseApiException;
+    public Map<UUID, List<SubscriptionBase>> getSubscriptionsForAccount(VersionedCatalog catalog, final LocalDate cutoffDt,  InternalTenantContext context) throws SubscriptionBaseApiException;
 
     public SubscriptionBase getBaseSubscription(UUID bundleId, InternalTenantContext context) throws SubscriptionBaseApiException;
 
-    public SubscriptionBase getSubscriptionFromId(UUID id, InternalTenantContext context) throws SubscriptionBaseApiException;
+    public SubscriptionBase getSubscriptionFromId(UUID id, boolean includeDeletedEvents, InternalTenantContext context) throws SubscriptionBaseApiException;
 
     public SubscriptionBase getSubscriptionFromExternalKey(String externalKey, InternalTenantContext context) throws SubscriptionBaseApiException;
 
     public SubscriptionBaseBundle getBundleFromId(UUID id, InternalTenantContext context) throws SubscriptionBaseApiException;
 
-    public void setChargedThroughDate(UUID subscriptionId, DateTime chargedThruDate, InternalCallContext context) throws SubscriptionBaseApiException;
+    public void setChargedThroughDates(Map<DateTime, List<UUID>> chargeThroughDates, InternalCallContext context) throws SubscriptionBaseApiException;
 
     public List<EffectiveSubscriptionInternalEvent> getAllTransitions(SubscriptionBase subscription, InternalTenantContext context);
 
@@ -99,6 +99,8 @@ public interface SubscriptionBaseInternalApi {
     public void updateExternalKey(UUID bundleId, String newExternalKey, InternalCallContext context);
 
     public void updateBCD(final UUID subscriptionId, final int bcd, @Nullable final LocalDate effectiveFromDate, final InternalCallContext internalCallContext) throws SubscriptionBaseApiException;
+
+    public void updateQuantity(final UUID subscriptionId, final int quantity, @Nullable final LocalDate effectiveFromDate, final InternalCallContext internalCallContext) throws SubscriptionBaseApiException;
 
     public UUID getAccountIdFromBundleId(UUID bundleId, InternalTenantContext context) throws SubscriptionBaseApiException;
 

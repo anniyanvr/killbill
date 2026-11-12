@@ -23,6 +23,8 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
 
+import jakarta.inject.Inject;
+
 import org.joda.time.DateTime;
 import org.killbill.billing.ErrorCode;
 import org.killbill.billing.callcontext.InternalTenantContext;
@@ -31,18 +33,13 @@ import org.killbill.billing.subscription.api.SubscriptionApiBase;
 import org.killbill.billing.subscription.api.SubscriptionBase;
 import org.killbill.billing.subscription.api.SubscriptionBaseApiService;
 import org.killbill.billing.subscription.api.user.DefaultSubscriptionBase;
-import org.killbill.billing.subscription.api.user.DefaultSubscriptionBaseBundle;
 import org.killbill.billing.subscription.api.user.SubscriptionBaseBundle;
 import org.killbill.billing.subscription.catalog.SubscriptionCatalog;
 import org.killbill.billing.subscription.catalog.SubscriptionCatalogApi;
 import org.killbill.billing.subscription.engine.dao.SubscriptionDao;
-import org.killbill.billing.subscription.events.SubscriptionBaseEvent;
 import org.killbill.billing.util.callcontext.InternalCallContextFactory;
 import org.killbill.billing.util.callcontext.TenantContext;
 import org.killbill.clock.Clock;
-
-import com.google.common.collect.ImmutableList;
-import com.google.inject.Inject;
 
 public class DefaultSubscriptionBaseTimelineApi extends SubscriptionApiBase implements SubscriptionBaseTimelineApi {
 
@@ -64,44 +61,25 @@ public class DefaultSubscriptionBaseTimelineApi extends SubscriptionApiBase impl
     public BundleBaseTimeline getBundleTimeline(final SubscriptionBaseBundle bundle, final TenantContext context)
             throws SubscriptionBaseRepairException {
         try {
-
-
             final InternalTenantContext internalTenantContext = internalCallContextFactory.createInternalTenantContext(bundle.getAccountId(), context);
             final SubscriptionCatalog catalog = subscriptionCatalogApi.getFullCatalog(internalTenantContext);
             final List<DefaultSubscriptionBase> subscriptions = dao.getSubscriptions(bundle.getId(),
-                                                                                     ImmutableList.<SubscriptionBaseEvent>of(),
+                                                                                     Collections.emptyList(),
                                                                                      catalog,
                                                                                      internalTenantContext);
-            if (subscriptions.size() == 0) {
+            if (subscriptions.isEmpty()) {
                 throw new SubscriptionBaseRepairException(ErrorCode.SUB_NO_ACTIVE_SUBSCRIPTIONS, bundle.getId());
             }
-            final String viewId = getViewId(((DefaultSubscriptionBaseBundle) bundle).getLastSysUpdateDate(), subscriptions);
-            final List<SubscriptionBaseTimeline> repairs = createGetSubscriptionRepairList(subscriptions, Collections.<SubscriptionBaseTimeline>emptyList(), catalog, internalTenantContext);
-            return createGetBundleRepair(bundle.getId(), bundle.getExternalKey(), viewId, repairs);
-        } catch (CatalogApiException e) {
+            final List<SubscriptionBaseTimeline> repairs = createGetSubscriptionRepairList(subscriptions, Collections.emptyList(), catalog, internalTenantContext);
+            return createGetBundleRepair(bundle.getId(), bundle.getExternalKey(), repairs);
+        } catch (final CatalogApiException e) {
             throw new SubscriptionBaseRepairException(e);
         }
     }
 
-    private String getViewId(final DateTime lastUpdateBundleDate, final List<DefaultSubscriptionBase> subscriptions) {
-        final StringBuilder tmp = new StringBuilder();
-        long lastOrderedId = -1;
-        for (final SubscriptionBase cur : subscriptions) {
-            lastOrderedId = lastOrderedId < ((DefaultSubscriptionBase) cur).getLastEventOrderedId() ? ((DefaultSubscriptionBase) cur).getLastEventOrderedId() : lastOrderedId;
-        }
-        tmp.append(lastOrderedId);
-        tmp.append("-");
-        tmp.append(lastUpdateBundleDate.toDate().getTime());
 
-        return tmp.toString();
-    }
-
-    private BundleBaseTimeline createGetBundleRepair(final UUID bundleId, final String externalKey, final String viewId, final List<SubscriptionBaseTimeline> repairList) {
+    private BundleBaseTimeline createGetBundleRepair(final UUID bundleId, final String externalKey, final List<SubscriptionBaseTimeline> repairList) {
         return new BundleBaseTimeline() {
-            @Override
-            public String getViewId() {
-                return viewId;
-            }
 
             @Override
             public List<SubscriptionBaseTimeline> getSubscriptions() {
@@ -132,8 +110,8 @@ public class DefaultSubscriptionBaseTimelineApi extends SubscriptionApiBase impl
 
     private List<SubscriptionBaseTimeline> createGetSubscriptionRepairList(final List<DefaultSubscriptionBase> subscriptions, final List<SubscriptionBaseTimeline> inRepair, final SubscriptionCatalog catalog, final InternalTenantContext tenantContext) throws CatalogApiException {
 
-        final List<SubscriptionBaseTimeline> result = new LinkedList<SubscriptionBaseTimeline>();
-        final Set<UUID> repairIds = new TreeSet<UUID>();
+        final List<SubscriptionBaseTimeline> result = new LinkedList<>();
+        final Set<UUID> repairIds = new TreeSet<>();
         for (final SubscriptionBaseTimeline cur : inRepair) {
             repairIds.add(cur.getId());
             result.add(cur);

@@ -19,9 +19,10 @@ package org.killbill.billing.payment.caching;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 
-import javax.inject.Inject;
-import javax.inject.Named;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
 
 import org.killbill.automaton.DefaultStateMachineConfig;
 import org.killbill.automaton.StateMachineConfig;
@@ -39,11 +40,10 @@ import org.killbill.billing.util.cache.CacheControllerDispatcher;
 import org.killbill.billing.util.cache.CacheLoaderArgument;
 import org.killbill.billing.util.cache.TenantStateMachineConfigCacheLoader.LoaderCallback;
 import org.killbill.billing.util.callcontext.InternalCallContextFactory;
+import org.killbill.commons.utils.io.Resources;
 import org.killbill.xmlloader.XMLLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.common.io.Resources;
 
 public class DefaultStateMachineConfigCache implements StateMachineConfigCache {
 
@@ -65,11 +65,10 @@ public class DefaultStateMachineConfigCache implements StateMachineConfigCache {
                 tenantInternalApi.initializeCacheInvalidationCallback(TenantKey.PLUGIN_PAYMENT_STATE_MACHINE_, cacheInvalidationCallback);
 
                 try {
-                    final InputStream stream = new ByteArrayInputStream(stateMachineConfigXML.getBytes());
+                    final InputStream stream = new ByteArrayInputStream(stateMachineConfigXML.getBytes(StandardCharsets.UTF_8));
                     return XMLLoader.getObjectFromStream(stream, DefaultStateMachineConfig.class);
                 } catch (final Exception e) {
-                    // TODO 0.17 proper error code
-                    throw new PaymentApiException(e, ErrorCode.PAYMENT_INTERNAL_ERROR, "Invalid payment state machine config");
+                    throw new PaymentApiException(e, ErrorCode.PAYMENT_STATE_MACHINE_FAILURE);
                 }
             }
         };
@@ -81,8 +80,7 @@ public class DefaultStateMachineConfigCache implements StateMachineConfigCache {
             try {
                 defaultPaymentStateMachineConfig = XMLLoader.getObjectFromString(Resources.getResource(url).toExternalForm(), DefaultStateMachineConfig.class);
             } catch (final Exception e) {
-                // TODO 0.17 proper error code
-                throw new PaymentApiException(e, ErrorCode.PAYMENT_INTERNAL_ERROR, "Invalid default payment state machine config");
+                throw new PaymentApiException(e, ErrorCode.PAYMENT_STATE_MACHINE_FAILURE);
             }
         }
     }
@@ -106,8 +104,7 @@ public class DefaultStateMachineConfigCache implements StateMachineConfigCache {
             ((DefaultStateMachineConfig)pluginPaymentStateMachineConfig).initialize(defaultPaymentStateMachineConfig);
             return pluginPaymentStateMachineConfig;
         } catch (final IllegalStateException e) {
-            // TODO 0.17 proper error code
-            throw new PaymentApiException(e, ErrorCode.PAYMENT_INTERNAL_ERROR, "Invalid payment state machine");
+            throw new PaymentApiException(e, ErrorCode.PAYMENT_STATE_MACHINE_FAILURE);
         }
     }
 

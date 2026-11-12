@@ -31,11 +31,11 @@ import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 
-import javax.xml.bind.annotation.XmlAccessType;
-import javax.xml.bind.annotation.XmlAccessorType;
-import javax.xml.bind.annotation.XmlElement;
-import javax.xml.bind.annotation.XmlElementWrapper;
-import javax.xml.bind.annotation.XmlRootElement;
+import jakarta.xml.bind.annotation.XmlAccessType;
+import jakarta.xml.bind.annotation.XmlAccessorType;
+import jakarta.xml.bind.annotation.XmlElement;
+import jakarta.xml.bind.annotation.XmlElementWrapper;
+import jakarta.xml.bind.annotation.XmlRootElement;
 
 import org.joda.time.DateTime;
 import org.killbill.billing.catalog.api.Plan;
@@ -46,8 +46,6 @@ import org.killbill.billing.util.catalog.CatalogDateHelper;
 import org.killbill.xmlloader.ValidatingConfig;
 import org.killbill.xmlloader.ValidationError;
 import org.killbill.xmlloader.ValidationErrors;
-
-import com.google.common.base.Preconditions;
 
 @XmlRootElement(name = "catalogs")
 @XmlAccessorType(XmlAccessType.NONE)
@@ -147,7 +145,7 @@ public class DefaultVersionedCatalog extends ValidatingConfig<DefaultVersionedCa
                 errors.add(new ValidationError(String.format("Catalog name '%s' is not consistent across versions ", c.getCatalogName()),
                                                DefaultVersionedCatalog.class, ""));
             }
-            errors.addAll(((StandaloneCatalog) c).validate((StandaloneCatalog) c, errors));
+            ((StandaloneCatalog) c).validate((StandaloneCatalog) c, errors);
         }
 
         validateUniformPlanShapeAcrossVersions(errors);
@@ -186,12 +184,13 @@ public class DefaultVersionedCatalog extends ValidatingConfig<DefaultVersionedCa
             final PlanPhase cur = plan.getAllPhases()[i];
             final PlanPhase target = targetPlan.getAllPhases()[i];
             if (!cur.getName().equals(target.getName())) {
-                errors.add(new ValidationError(String.format("Phase '%s'for plan '%s' in version '%s' does not exist in version '%s'",
+               errors.add(new ValidationError(String.format("Phase '%s'for plan '%s' in version '%s' does not exist in version '%s'",
                                                              cur.getName(), plan.getName(), plan.getCatalog().getEffectiveDate(), targetPlan.getCatalog().getEffectiveDate()),
                                                DefaultVersionedCatalog.class, ""));
             }
         }
     }
+    
 
     @Override
     public void readExternal(final ObjectInput in) throws IOException, ClassNotFoundException {

@@ -22,9 +22,9 @@ import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectOutput;
 
-import javax.xml.bind.annotation.XmlAccessType;
-import javax.xml.bind.annotation.XmlAccessorType;
-import javax.xml.bind.annotation.XmlElement;
+import jakarta.xml.bind.annotation.XmlAccessType;
+import jakarta.xml.bind.annotation.XmlAccessorType;
+import jakarta.xml.bind.annotation.XmlElement;
 
 import org.killbill.billing.catalog.api.BillingPeriod;
 import org.killbill.billing.catalog.api.PhaseType;
@@ -93,9 +93,14 @@ public class DefaultRecurring extends ValidatingConfig<StandaloneCatalog> implem
         }
 
         // Validation: if there is a recurring price there must be a billing period
-        if ((recurringPrice != null) && (billingPeriod == null || billingPeriod == BillingPeriod.NO_BILLING_PERIOD)) {
-            errors.add(new ValidationError(String.format("Recurring section of Phase %s of plan %s has a recurring price but no billing period", phaseType.toString(), planName),
-                                           DefaultPlanPhase.class, phaseType.toString()));
+        if (recurringPrice != null) {
+            // Validation: check for negative price
+            recurringPrice.validate(catalog, errors);
+
+            if (billingPeriod == null || billingPeriod == BillingPeriod.NO_BILLING_PERIOD) {
+                errors.add(new ValidationError(String.format("Recurring section of Phase %s of plan %s has a recurring price but no billing period", phaseType.toString(), planName),
+                                               DefaultPlanPhase.class, phaseType.toString()));
+            }
         }
 
         // Validation: if there is no recurring price there should be no billing period

@@ -33,6 +33,7 @@ import org.killbill.billing.catalog.api.PhaseType;
 import org.killbill.billing.catalog.api.PlanPhaseSpecifier;
 import org.killbill.billing.catalog.api.PriceListSet;
 import org.killbill.billing.catalog.api.ProductCategory;
+import org.killbill.billing.entitlement.api.BcdTransfer;
 import org.killbill.billing.subscription.SubscriptionTestSuiteNoDB;
 import org.killbill.billing.subscription.api.SubscriptionBaseApiService;
 import org.killbill.billing.subscription.api.SubscriptionBaseTransitionType;
@@ -52,8 +53,6 @@ import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import com.google.common.collect.ImmutableList;
-
 // Simple unit tests for DefaultSubscriptionBaseTransferApi, see TestTransfer for more advanced tests with dao
 public class TestDefaultSubscriptionTransferApi extends SubscriptionTestSuiteNoDB {
 
@@ -68,7 +67,7 @@ public class TestDefaultSubscriptionTransferApi extends SubscriptionTestSuiteNoD
         final MockCatalog mockCatalog = new MockCatalog();
         versionedCatalog.add(mockCatalog);
         final CatalogService catalogService = new MockCatalogService(versionedCatalog);
-        final CatalogInternalApi catalogInternalApiWithMockCatalogService = new DefaultCatalogInternalApi(catalogService);
+        final CatalogInternalApi catalogInternalApiWithMockCatalogService = new DefaultCatalogInternalApi(catalogService, null);
         final SubscriptionCatalogApi subscriptionCatalogInternalApiWithMockCatalogService = new DefaultSubscriptionCatalogApi(catalogInternalApiWithMockCatalogService, clock);
         final SubscriptionBaseApiService apiService = Mockito.mock(SubscriptionBaseApiService.class);
         final SubscriptionBaseTimelineApi timelineApi = Mockito.mock(SubscriptionBaseTimelineApi.class);
@@ -81,13 +80,13 @@ public class TestDefaultSubscriptionTransferApi extends SubscriptionTestSuiteNoD
     public void testEventsForCancelledSubscriptionBeforeTransfer() throws Exception {
         final DateTime subscriptionStartTime = clock.getUTCNow();
         final DateTime subscriptionCancelTime = subscriptionStartTime.plusDays(1);
-        final ImmutableList<ExistingEvent> existingEvents = ImmutableList.<ExistingEvent>of(createEvent(subscriptionStartTime, SubscriptionBaseTransitionType.CREATE),
-                                                                                            createEvent(subscriptionCancelTime, SubscriptionBaseTransitionType.CANCEL));
+        final List<ExistingEvent> existingEvents = List.of(createEvent(subscriptionStartTime, SubscriptionBaseTransitionType.CREATE),
+                                                           createEvent(subscriptionCancelTime, SubscriptionBaseTransitionType.CANCEL));
         final SubscriptionBuilder subscriptionBuilder = new SubscriptionBuilder();
         final DefaultSubscriptionBase subscription = new DefaultSubscriptionBase(subscriptionBuilder);
 
         final DateTime transferDate = subscriptionStartTime.plusDays(10);
-        final List<SubscriptionBaseEvent> events = transferApi.toEvents(existingEvents, subscription, transferDate, internalCallContext);
+        final List<SubscriptionBaseEvent> events = transferApi.toEvents(existingEvents, subscription, transferDate, BcdTransfer.USE_EXISTING);
 
         Assert.assertEquals(events.size(), 0);
     }
@@ -97,13 +96,13 @@ public class TestDefaultSubscriptionTransferApi extends SubscriptionTestSuiteNoD
 
         final DateTime subscriptionStartTime = clock.getUTCNow();
         final DateTime subscriptionCancelTime = subscriptionStartTime.plusDays(1);
-        final ImmutableList<ExistingEvent> existingEvents = ImmutableList.<ExistingEvent>of(createEvent(subscriptionStartTime, SubscriptionBaseTransitionType.CREATE),
-                                                                                            createEvent(subscriptionCancelTime, SubscriptionBaseTransitionType.CANCEL));
+        final List<ExistingEvent> existingEvents = List.of(createEvent(subscriptionStartTime, SubscriptionBaseTransitionType.CREATE),
+                                                           createEvent(subscriptionCancelTime, SubscriptionBaseTransitionType.CANCEL));
         final SubscriptionBuilder subscriptionBuilder = new SubscriptionBuilder();
         final DefaultSubscriptionBase subscription = new DefaultSubscriptionBase(subscriptionBuilder);
 
         final DateTime transferDate = subscriptionStartTime.plusHours(1);
-        final List<SubscriptionBaseEvent> events = transferApi.toEvents(existingEvents, subscription, transferDate, internalCallContext);
+        final List<SubscriptionBaseEvent> events = transferApi.toEvents(existingEvents, subscription, transferDate, BcdTransfer.USE_EXISTING);
 
         Assert.assertEquals(events.size(), 1);
         Assert.assertEquals(events.get(0).getType(), EventType.API_USER);
@@ -130,6 +129,11 @@ public class TestDefaultSubscriptionTransferApi extends SubscriptionTestSuiteNoD
 
             @Override
             public Integer getBillCycleDayLocal() {
+                return null;
+            }
+
+            @Override
+            public Integer getQuantity() {
                 return null;
             }
 

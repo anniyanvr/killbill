@@ -18,9 +18,12 @@
 package org.killbill.billing.util.config.tenant;
 
 import java.lang.reflect.Method;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.killbill.billing.callcontext.InternalTenantContext;
 import org.killbill.billing.events.BusInternalEvent.BusInternalEventType;
@@ -29,68 +32,54 @@ import org.skife.config.Config;
 import org.skife.config.Separator;
 import org.skife.config.TimeSpan;
 
-import com.google.common.base.Function;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
+public abstract class MultiTenantConfigBase implements KillbillConfig {
 
-public abstract class MultiTenantConfigBase {
+    private final Map<String, Method> methodsCache = new HashMap<>();
+    protected final KillbillConfig staticConfig;
 
-    private final Map<String, Method> methodsCache = new HashMap<String, Method>();
     protected final CacheConfig cacheConfig;
 
-    private final static Function<String, Integer> INT_CONVERTER = new Function<String, Integer>() {
-        @Override
-        public Integer apply(final String input) {
-            return Integer.valueOf(input);
-        }
-    };
+    private static final Function<String, Integer> INT_CONVERTER = Integer::valueOf;
 
-    private final static Function<String, TimeSpan> TIME_SPAN_CONVERTER = new Function<String, TimeSpan>() {
-        @Override
-        public TimeSpan apply(final String input) {
-            return new TimeSpan(input);
-        }
-    };
+    private static final Function<String, TimeSpan> TIME_SPAN_CONVERTER = TimeSpan::new;
 
-    private final static Function<String, BusInternalEventType> BUS_EVENT_TYPE_CONVERTER = new Function<String, BusInternalEventType>() {
-        @Override
-        public BusInternalEventType apply(final String input) {
-            return BusInternalEventType.valueOf(input);
-        }
-    };
+    private static final Function<String, BusInternalEventType> BUS_EVENT_TYPE_CONVERTER = BusInternalEventType::valueOf;
 
 
-    public MultiTenantConfigBase(final CacheConfig cacheConfig) {
+    public MultiTenantConfigBase(final KillbillConfig staticConfig, final CacheConfig cacheConfig) {
+        this.staticConfig = staticConfig;
         this.cacheConfig = cacheConfig;
     }
 
     //
-    // The conversion methds are rather limited (but this is all we need).
+    // The conversion methods are rather limited (but this is all we need).
     // Ideally we could reuse the bully/Coercer from skife package, but those are kept private.
     //
-
     protected List<String> convertToListString(final String value, final String methodName) {
         final Method method = getConfigStaticMethodWithChecking(methodName);
-        final Iterable<String> tokens = getTokens(method, value);
-        return ImmutableList.copyOf(tokens);
+        final List<String> tokens = getTokens(method, value);
+        return List.copyOf(tokens);
     }
 
     protected List<TimeSpan> convertToListTimeSpan(final String value, final String methodName) {
         final Method method = getConfigStaticMethodWithChecking(methodName);
-        final Iterable<String> tokens = getTokens(method, value);
-        return ImmutableList.copyOf(Iterables.transform(tokens, TIME_SPAN_CONVERTER));
+        return getTokens(method, value).stream()
+                .map(TIME_SPAN_CONVERTER)
+                .collect(Collectors.toUnmodifiableList());
     }
 
     protected List<BusInternalEventType> convertToListBusInternalEventType(final String value, final String methodName) {
         final Method method = getConfigStaticMethodWithChecking(methodName);
-        final Iterable<String> tokens = getTokens(method, value);
-        return ImmutableList.copyOf(Iterables.transform(tokens, BUS_EVENT_TYPE_CONVERTER));
+        return getTokens(method, value).stream()
+                .map(BUS_EVENT_TYPE_CONVERTER)
+                .collect(Collectors.toUnmodifiableList());
     }
 
     protected List<Integer> convertToListInteger(final String value, final String methodName) {
         final Method method = getConfigStaticMethodWithChecking(methodName);
-        final Iterable<String> tokens = getTokens(method, value);
-        return ImmutableList.copyOf(Iterables.transform(tokens, INT_CONVERTER));
+        return getTokens(method, value).stream()
+                .map(INT_CONVERTER)
+                .collect(Collectors.toUnmodifiableList());
     }
 
     protected String getStringTenantConfig(final String methodName, final InternalTenantContext tenantContext) {
@@ -124,9 +113,9 @@ public abstract class MultiTenantConfigBase {
     private List<String> getTokens(final Method method, final String value) {
         final Separator separator = method.getAnnotation(Separator.class);
         if (value == null || value.isEmpty()) {
-            return ImmutableList.of();
+            return Collections.emptyList();
         } else {
-            return ImmutableList.copyOf(value.split(separator == null ? Separator.DEFAULT : separator.value()));
+            return List.of(value.split(separator == null ? Separator.DEFAULT : separator.value()));
         }
     }
 

@@ -17,9 +17,9 @@
 package org.killbill.billing.jaxrs.json;
 
 import java.math.BigDecimal;
-import java.util.Date;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import javax.annotation.Nullable;
 
@@ -32,20 +32,17 @@ import org.killbill.billing.util.audit.AuditLog;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.google.common.base.Function;
-import com.google.common.collect.Collections2;
-import com.google.common.collect.ImmutableList;
-import io.swagger.annotations.ApiModel;
-import io.swagger.annotations.ApiModelProperty;
 
-@ApiModel(value="InvoiceItem", parent = JsonBase.class)
+import io.swagger.v3.oas.annotations.media.Schema;
+
+@Schema(name = "InvoiceItem")
 public class InvoiceItemJson extends JsonBase {
 
-    @ApiModelProperty( required = true)
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED)
     private final UUID invoiceItemId;
     private final UUID invoiceId;
     private final UUID linkedInvoiceItemId;
-    @ApiModelProperty(required = true)
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED)
     private final UUID accountId;
     private final UUID childAccountId;
     private final UUID bundleId;
@@ -65,7 +62,7 @@ public class InvoiceItemJson extends JsonBase {
     private final BigDecimal amount;
     private final BigDecimal rate;
     private final Currency currency;
-    private final Integer quantity;
+    private final BigDecimal quantity;
     private final String itemDetails;
     private final DateTime catalogEffectiveDate;
     private List<InvoiceItemJson> childItems;
@@ -93,7 +90,7 @@ public class InvoiceItemJson extends JsonBase {
                            @JsonProperty("amount") final BigDecimal amount,
                            @JsonProperty("rate") final  BigDecimal rate,
                            @JsonProperty("currency") final Currency currency,
-                           @JsonProperty("quantity") final Integer quantity,
+                           @JsonProperty("quantity") final BigDecimal quantity,
                            @JsonProperty("itemDetails") final String itemDetails,
                            @JsonProperty("catalogEffectiveDate") final DateTime catalogEffectiveDate,
                            @JsonProperty("childItems") final List<InvoiceItemJson> childItems,
@@ -143,12 +140,7 @@ public class InvoiceItemJson extends JsonBase {
         if (childItems == null) {
             return null;
         }
-        return ImmutableList.copyOf(Collections2.transform(childItems, new Function<InvoiceItem, InvoiceItemJson>() {
-            @Override
-            public InvoiceItemJson apply(final InvoiceItem input) {
-                return new InvoiceItemJson(input);
-            }
-        }));
+        return childItems.stream().map(InvoiceItemJson::new).collect(Collectors.toUnmodifiableList());
     }
 
     public InvoiceItem toInvoiceItem() {
@@ -259,7 +251,7 @@ public class InvoiceItemJson extends JsonBase {
             }
 
             @Override
-            public Integer getQuantity() { return quantity; }
+            public BigDecimal getQuantity() { return quantity; }
 
             @Override
             public String getItemDetails() { return itemDetails; }
@@ -389,7 +381,7 @@ public class InvoiceItemJson extends JsonBase {
         return catalogEffectiveDate;
     }
 
-    public Integer getQuantity() { return quantity; }
+    public BigDecimal getQuantity() { return quantity; }
 
     public String getItemDetails() { return itemDetails; }
 

@@ -17,10 +17,10 @@
 
 package org.killbill.billing.usage.glue;
 
+import jakarta.inject.Provider;
+
 import org.killbill.billing.osgi.api.OSGIServiceRegistration;
 import org.killbill.billing.usage.plugin.api.UsagePluginApi;
-
-import com.google.inject.Provider;
 
 public class DefaultUsageProviderPluginRegistryProvider implements Provider<OSGIServiceRegistration<UsagePluginApi>> {
 

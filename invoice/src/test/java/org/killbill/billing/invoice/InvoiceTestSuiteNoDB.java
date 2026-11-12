@@ -18,6 +18,8 @@
 
 package org.killbill.billing.invoice;
 
+import jakarta.inject.Inject;
+
 import org.killbill.billing.GuicyKillbillTestSuiteNoDB;
 import org.killbill.billing.account.api.AccountInternalApi;
 import org.killbill.billing.currency.api.CurrencyConversionApi;
@@ -29,9 +31,11 @@ import org.killbill.billing.invoice.dao.InvoiceDaoHelper;
 import org.killbill.billing.invoice.generator.FixedAndRecurringInvoiceItemGenerator;
 import org.killbill.billing.invoice.generator.InvoiceGenerator;
 import org.killbill.billing.invoice.glue.TestInvoiceModuleNoDB;
+import org.killbill.billing.invoice.plugin.api.InvoiceFormatterFactory;
 import org.killbill.billing.invoice.usage.RawUsageOptimizer;
 import org.killbill.billing.junction.BillingInternalApi;
 import org.killbill.billing.lifecycle.api.BusService;
+import org.killbill.billing.osgi.api.OSGIServiceRegistration;
 import org.killbill.billing.subscription.api.SubscriptionBaseInternalApi;
 import org.killbill.billing.usage.api.UsageUserApi;
 import org.killbill.billing.util.api.TagUserApi;
@@ -47,7 +51,6 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 
 import com.google.inject.Guice;
-import com.google.inject.Inject;
 import com.google.inject.Injector;
 
 public abstract class InvoiceTestSuiteNoDB extends GuicyKillbillTestSuiteNoDB {
@@ -94,6 +97,9 @@ public abstract class InvoiceTestSuiteNoDB extends GuicyKillbillTestSuiteNoDB {
     protected InvoiceDaoHelper invoiceDaoHelper;
     @Inject
     protected FixedAndRecurringInvoiceItemGenerator fixedAndRecurringInvoiceItemGenerator;
+
+    @Inject
+    protected OSGIServiceRegistration<InvoiceFormatterFactory> invoiceFormatterFactoryPluginRegistry;
 
     protected UsageDetailMode usageDetailMode;
 

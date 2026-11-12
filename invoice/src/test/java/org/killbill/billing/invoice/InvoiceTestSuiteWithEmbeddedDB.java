@@ -18,6 +18,8 @@
 
 package org.killbill.billing.invoice;
 
+import jakarta.inject.Inject;
+
 import org.killbill.billing.GuicyKillbillTestSuiteWithEmbeddedDB;
 import org.killbill.billing.account.api.AccountInternalApi;
 import org.killbill.billing.account.api.AccountUserApi;
@@ -26,7 +28,7 @@ import org.killbill.billing.invoice.api.DefaultInvoiceService;
 import org.killbill.billing.invoice.api.InvoiceInternalApi;
 import org.killbill.billing.invoice.api.InvoiceService;
 import org.killbill.billing.invoice.api.InvoiceUserApi;
-import org.killbill.billing.invoice.dao.InvoiceDao;
+import org.killbill.billing.invoice.dao.DefaultInvoiceDao;
 import org.killbill.billing.invoice.dao.InvoiceDaoHelper;
 import org.killbill.billing.invoice.generator.InvoiceGenerator;
 import org.killbill.billing.invoice.glue.TestInvoiceModuleWithEmbeddedDb;
@@ -49,7 +51,6 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 
 import com.google.inject.Guice;
-import com.google.inject.Inject;
 import com.google.inject.Injector;
 
 public abstract class InvoiceTestSuiteWithEmbeddedDB extends GuicyKillbillTestSuiteWithEmbeddedDB {
@@ -79,7 +80,7 @@ public abstract class InvoiceTestSuiteWithEmbeddedDB extends GuicyKillbillTestSu
     @Inject
     protected BusService busService;
     @Inject
-    protected InvoiceDao invoiceDao;
+    protected DefaultInvoiceDao invoiceDao;
     @Inject
     protected InvoiceDaoHelper invoiceDaoHelper;
     @Inject

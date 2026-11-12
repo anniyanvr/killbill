@@ -17,18 +17,19 @@
 
 package org.killbill.billing.catalog;
 
+import jakarta.inject.Inject;
+
 import org.killbill.billing.GuicyKillbillTestSuiteWithEmbeddedDB;
 import org.killbill.billing.catalog.caching.PriceOverridePattern;
 import org.killbill.billing.catalog.dao.CatalogOverrideDao;
 import org.killbill.billing.catalog.glue.TestCatalogModuleWithEmbeddedDB;
-import org.killbill.billing.catalog.override.PriceOverride;
+import org.killbill.billing.catalog.override.PriceOverrideSvc;
+import org.killbill.commons.utils.io.Resources;
 import org.killbill.xmlloader.XMLLoader;
 import org.skife.jdbi.v2.IDBI;
 import org.testng.annotations.BeforeClass;
 
-import com.google.common.io.Resources;
 import com.google.inject.Guice;
-import com.google.inject.Inject;
 import com.google.inject.Injector;
 
 public class CatalogTestSuiteWithEmbeddedDB extends GuicyKillbillTestSuiteWithEmbeddedDB {
@@ -40,7 +41,7 @@ public class CatalogTestSuiteWithEmbeddedDB extends GuicyKillbillTestSuiteWithEm
     protected IDBI dbi;
 
     @Inject
-    protected PriceOverride priceOverride;
+    protected PriceOverrideSvc priceOverride;
 
     @Inject PriceOverridePattern priceOverridePattern;
 

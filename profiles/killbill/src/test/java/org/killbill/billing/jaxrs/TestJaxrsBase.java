@@ -1,7 +1,8 @@
 /*
- * Copyright 2010-2013 Ning, Inc.
- * Copyright 2014-2018 Groupon, Inc
- * Copyright 2014-2018 The Billing Project, LLC
+ * Copyright 2010-2014 Ning, Inc.
+ * Copyright 2014-2020 Groupon, Inc
+ * Copyright 2020-2022 Equinix, Inc
+ * Copyright 2014-2022 The Billing Project, LLC
  *
  * The Billing Project licenses this file to you under the Apache License, version 2.0
  * (the "License"); you may not use this file except in compliance with the
@@ -18,27 +19,33 @@
 
 package org.killbill.billing.jaxrs;
 
-import java.io.File;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
-import java.nio.charset.Charset;
+import java.net.URISyntaxException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZonedDateTime;
+import java.util.Collection;
 import java.util.EventListener;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
-import javax.inject.Inject;
-import javax.inject.Named;
-import javax.servlet.Servlet;
-import javax.servlet.ServletContext;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
+import jakarta.servlet.Servlet;
+import jakarta.servlet.ServletContext;
 import javax.sql.DataSource;
 
 import org.apache.shiro.web.servlet.ShiroFilter;
 import org.eclipse.jetty.servlet.FilterHolder;
-import org.joda.time.LocalDate;
 import org.killbill.billing.GuicyKillbillTestWithEmbeddedDBModule;
 import org.killbill.billing.api.TestApiListener;
 import org.killbill.billing.beatrix.integration.db.TestDBRouterAPI;
@@ -89,10 +96,11 @@ import org.killbill.billing.tenant.api.TenantCacheInvalidation;
 import org.killbill.billing.util.cache.CacheControllerDispatcher;
 import org.killbill.billing.util.config.definition.PaymentConfig;
 import org.killbill.billing.util.config.definition.SecurityConfig;
+import org.killbill.commons.utils.io.Resources;
 import org.killbill.bus.api.PersistentBus;
 import org.killbill.notificationq.api.NotificationQueueService;
 import org.skife.config.ConfigSource;
-import org.skife.config.ConfigurationObjectFactory;
+import org.skife.config.AugmentedConfigurationObjectFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.annotations.AfterMethod;
@@ -101,13 +109,6 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.BeforeSuite;
 
-import com.google.common.base.Function;
-import com.google.common.base.Predicate;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Iterables;
-import com.google.common.io.Files;
-import com.google.common.io.Resources;
 import com.google.inject.Binder;
 import com.google.inject.Module;
 import com.google.inject.util.Modules;
@@ -118,7 +119,6 @@ public class TestJaxrsBase extends KillbillClient {
 
     protected final int DEFAULT_CONNECT_TIMEOUT_SEC = 10;
     protected final int DEFAULT_READ_TIMEOUT_SEC = 60;
-    protected final int DEFAULT_REQUEST_TIMEOUT_SEC = DEFAULT_READ_TIMEOUT_SEC;
 
     protected static final String PLUGIN_NAME = "noop";
 
@@ -130,7 +130,7 @@ public class TestJaxrsBase extends KillbillClient {
 
     @Inject
     protected
-    @javax.inject.Named(BusModule.EXTERNAL_BUS_NAMED)
+    @jakarta.inject.Named(BusModule.EXTERNAL_BUS_NAMED)
     PersistentBus externalBus;
 
     @Inject
@@ -226,8 +226,7 @@ public class TestJaxrsBase extends KillbillClient {
                                                     null,
                                                     null,
                                                     DEFAULT_CONNECT_TIMEOUT_SEC * 1000,
-                                                    DEFAULT_READ_TIMEOUT_SEC * 1000,
-                                                    DEFAULT_REQUEST_TIMEOUT_SEC * 1000);
+                                                    DEFAULT_READ_TIMEOUT_SEC * 1000);
         accountApi = new AccountApi(killBillHttpClient);
         adminApi = new AdminApi(killBillHttpClient);
         bundleApi = new BundleApi(killBillHttpClient);
@@ -287,7 +286,8 @@ public class TestJaxrsBase extends KillbillClient {
         callbackServlet.reset();
 
         clock.resetDeltaFromReality();
-        clock.setDay(new LocalDate(2012, 8, 25));
+        // Convert Java Time LocalDate to Joda Time LocalDate for ClockMock
+        clock.setDay(new org.joda.time.LocalDate(2012, 8, 25));
 
         // Make sure to re-generate the api key and secret (could be cached by Shiro)
         DEFAULT_API_KEY = UUID.randomUUID().toString();
@@ -369,10 +369,10 @@ public class TestJaxrsBase extends KillbillClient {
                 return configSource.getString(propertyName);
             }
         };
-        final KillbillServerConfig serverConfig = new ConfigurationObjectFactory(skifeConfigSource).build(KillbillServerConfig.class);
+        final KillbillServerConfig serverConfig = new AugmentedConfigurationObjectFactory(skifeConfigSource).build(KillbillServerConfig.class);
         listener = new TestKillbillGuiceListener(serverConfig, configSource);
 
-        config = new ConfigurationObjectFactory(System.getProperties()).build(HttpServerConfig.class);
+        config = new AugmentedConfigurationObjectFactory(System.getProperties()).build(HttpServerConfig.class);
         server = new HttpServer();
         server.configure(config, getListeners(), getFilters());
         server.start();
@@ -387,14 +387,14 @@ public class TestJaxrsBase extends KillbillClient {
             @Override
             public Iterator<EventListener> iterator() {
                 // Note! This needs to be in sync with web.xml
-                return ImmutableList.<EventListener>of(listener).iterator();
+                return List.<EventListener>of(listener).iterator();
             }
         };
     }
 
     protected Map<FilterHolder, String> getFilters() {
         // Note! This needs to be in sync with web.xml
-        return ImmutableMap.<FilterHolder, String>of(new FilterHolder(new ShiroFilter()), "/*");
+        return Map.of(new FilterHolder(new ShiroFilter()), "/*");
     }
 
     @AfterSuite(groups = "slow")
@@ -407,32 +407,19 @@ public class TestJaxrsBase extends KillbillClient {
     }
 
     protected static List<PaymentTransaction> getInvoicePaymentTransactions(final List<InvoicePayment> payments, final TransactionType transactionType) {
-        final Iterable<PaymentTransaction> transform = Iterables.concat(Iterables.transform(payments, new Function<InvoicePayment, Iterable<PaymentTransaction>>() {
-            @Override
-            public Iterable<PaymentTransaction> apply(final InvoicePayment input) {
-                return input.getTransactions();
-            }
-        }));
-        return filterTransactions(transform, transactionType);
+        return payments.stream()
+                       .map(InvoicePayment::getTransactions)
+                       .flatMap(Collection::stream)
+                       .filter(input -> input.getTransactionType().equals(transactionType))
+                       .collect(Collectors.toUnmodifiableList());
     }
 
     protected static List<PaymentTransaction> getPaymentTransactions(final List<Payment> payments, final TransactionType transactionType) {
-        final Iterable<PaymentTransaction> transform = Iterables.concat(Iterables.transform(payments, new Function<Payment, Iterable<PaymentTransaction>>() {
-            @Override
-            public Iterable<PaymentTransaction> apply(final Payment input) {
-                return input.getTransactions();
-            }
-        }));
-        return filterTransactions(transform, transactionType);
-    }
-
-    protected static List<PaymentTransaction> filterTransactions(final Iterable<PaymentTransaction> paymentTransaction, final TransactionType transactionType) {
-        return ImmutableList.copyOf(Iterables.filter(paymentTransaction, new Predicate<PaymentTransaction>() {
-            @Override
-            public boolean apply(final PaymentTransaction input) {
-                return input.getTransactionType().equals(transactionType);
-            }
-        }));
+        return payments.stream()
+                       .map(Payment::getTransactions)
+                       .flatMap(Collection::stream)
+                       .filter(input -> input.getTransactionType().equals(transactionType))
+                       .collect(Collectors.toUnmodifiableList());
     }
 
     protected String uploadTenantCatalog(final String catalog, final boolean fetch) throws IOException, KillBillClientException {
@@ -449,9 +436,13 @@ public class TestJaxrsBase extends KillbillClient {
     }
 
     protected String getResourceBodyString(final String resource) throws IOException {
-        final String resourcePath = Resources.getResource(resource).getPath();
-        final File catalogFile = new File(resourcePath);
-        return Files.toString(catalogFile, Charset.forName("UTF-8"));
+        final Path resourcePath;
+        try {
+            resourcePath = Paths.get(Resources.getResource(resource).toURI());
+            return Files.readString(resourcePath);
+        } catch (URISyntaxException e) {
+            throw new IOException(e);
+        }
     }
 
     protected void printThreadDump() {
@@ -473,5 +464,48 @@ public class TestJaxrsBase extends KillbillClient {
             dump.append("\n\n");
         }
         log.warn(dump.toString());
+    }
+
+    /**
+     * Helper method to convert Java Time ZonedDateTime to Joda Time DateTime for use with InternalCallContext.toLocalDate()
+     */
+    protected org.joda.time.DateTime toJodaDateTime(final ZonedDateTime zonedDateTime) {
+        if (zonedDateTime == null) {
+            return null;
+        }
+        return new org.joda.time.DateTime(zonedDateTime.toInstant().toEpochMilli());
+    }
+
+    protected org.joda.time.LocalDate toJodaLocalDate(final LocalDate localDate) {
+        if (localDate == null) {
+            return null;
+        }
+        return new org.joda.time.LocalDate(localDate.getYear(), localDate.getMonthValue(), localDate.getDayOfMonth());
+    }
+
+    protected ZonedDateTime toJavaZonedDateTime(final org.joda.time.DateTime jodaDateTime) {
+        if (jodaDateTime == null) {
+            return null;
+        }
+        final int offsetSeconds = jodaDateTime.getZone().getOffset(jodaDateTime.getMillis()) / 1000;
+        return Instant.ofEpochMilli(jodaDateTime.getMillis()).atZone(java.time.ZoneOffset.ofTotalSeconds(offsetSeconds));
+    }
+
+    protected LocalDate toJavaLocalDate(final org.joda.time.LocalDate jodaDate) {
+        if (jodaDate == null) {
+            return null;
+        }
+        return LocalDate.of(jodaDate.getYear(), jodaDate.getMonthOfYear(), jodaDate.getDayOfMonth());
+    }
+
+    protected java.time.LocalDate toJavaLocalDate(final org.joda.time.DateTime jodaDateTime) {
+        if (jodaDateTime == null) {
+            return null;
+        }
+        return LocalDate.of(jodaDateTime.getYear(), jodaDateTime.getMonthOfYear(), jodaDateTime.getDayOfMonth());
+    }
+
+    protected org.joda.time.LocalDate clockGetToday(final String timezone) {
+        return clock.getToday(org.joda.time.DateTimeZone.forID(timezone));
     }
 }

@@ -17,24 +17,27 @@
 
 package org.killbill.billing.jaxrs.resources;
 
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 
-import javax.inject.Inject;
-import javax.servlet.http.HttpServletRequest;
-import javax.ws.rs.Consumes;
-import javax.ws.rs.GET;
-import javax.ws.rs.HeaderParam;
-import javax.ws.rs.POST;
-import javax.ws.rs.Path;
-import javax.ws.rs.PathParam;
-import javax.ws.rs.Produces;
-import javax.ws.rs.QueryParam;
-import javax.ws.rs.core.Response;
-import javax.ws.rs.core.Response.Status;
-import javax.ws.rs.core.UriInfo;
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.HeaderParam;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.Response.Status;
+import jakarta.ws.rs.core.UriInfo;
 
-import org.joda.time.LocalDate;
+import org.joda.time.DateTime;
 import org.killbill.billing.account.api.AccountApiException;
 import org.killbill.billing.account.api.AccountUserApi;
 import org.killbill.billing.entitlement.api.Entitlement;
@@ -48,6 +51,7 @@ import org.killbill.billing.jaxrs.util.Context;
 import org.killbill.billing.jaxrs.util.JaxrsUriBuilder;
 import org.killbill.billing.payment.api.InvoicePaymentApi;
 import org.killbill.billing.payment.api.PaymentApi;
+import org.killbill.billing.payment.api.PluginProperty;
 import org.killbill.billing.usage.api.RolledUpUsage;
 import org.killbill.billing.usage.api.SubscriptionUsageRecord;
 import org.killbill.billing.usage.api.UsageApiException;
@@ -58,25 +62,23 @@ import org.killbill.billing.util.api.TagUserApi;
 import org.killbill.billing.util.callcontext.CallContext;
 import org.killbill.billing.util.callcontext.TenantContext;
 import org.killbill.clock.Clock;
-import org.killbill.commons.metrics.TimedResource;
+import org.killbill.commons.metrics.api.annotation.TimedResource;
+import org.killbill.commons.utils.Preconditions;
+import org.killbill.commons.utils.annotation.VisibleForTesting;
+import org.killbill.commons.utils.collect.Iterables;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Ordering;
-import com.google.inject.Singleton;
-import io.swagger.annotations.Api;
-import io.swagger.annotations.ApiOperation;
-import io.swagger.annotations.ApiResponse;
-import io.swagger.annotations.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 
-import static javax.ws.rs.core.MediaType.APPLICATION_JSON;
+import static jakarta.ws.rs.core.MediaType.APPLICATION_JSON;
 
 @Singleton
 @Path(JaxrsResource.USAGES_PATH)
-@Api(value = JaxrsResource.USAGES_PATH, description = "Operations on usage", tags="Usage")
+@Tag(name = "Usage", description = "Operations on usage")
 public class UsageResource extends JaxRsResourceBase {
 
     private final UsageUserApi usageUserApi;
@@ -103,21 +105,22 @@ public class UsageResource extends JaxRsResourceBase {
     @POST
     @Consumes(APPLICATION_JSON)
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Record usage for a subscription")
-    @ApiResponses(value = {@ApiResponse(code = 200, message = "Successfully recorded usage data change"),
-                           @ApiResponse(code = 400, message = "Invalid subscription (e.g. inactive)")})
+    @Operation(summary = "Record usage for a subscription")
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "Successfully recorded usage data change"),
+                           @ApiResponse(responseCode = "400", description = "Invalid subscription (e.g. inactive)")})
     public Response recordUsage(final SubscriptionUsageRecordJson json,
                                 @HeaderParam(HDR_CREATED_BY) final String createdBy,
                                 @HeaderParam(HDR_REASON) final String reason,
                                 @HeaderParam(HDR_COMMENT) final String comment,
-                                @javax.ws.rs.core.Context final HttpServletRequest request,
-                                @javax.ws.rs.core.Context final UriInfo uriInfo) throws EntitlementApiException,
+                                @jakarta.ws.rs.core.Context final HttpServletRequest request,
+                                @jakarta.ws.rs.core.Context final UriInfo uriInfo) throws EntitlementApiException,
                                                                                         AccountApiException,
                                                                                         UsageApiException {
         verifyNonNullOrEmpty(json, "SubscriptionUsageRecordJson body should be specified");
         verifyNonNullOrEmpty(json.getSubscriptionId(), "SubscriptionUsageRecordJson subscriptionId needs to be set",
                              json.getUnitUsageRecords(), "SubscriptionUsageRecordJson unitUsageRecords needs to be set");
-        Preconditions.checkArgument(!json.getUnitUsageRecords().isEmpty());
+        Preconditions.checkArgument(!json.getUnitUsageRecords().isEmpty(), "json.getUnitUsageRecords() is empty");
+
         for (final UnitUsageRecordJson unitUsageRecordJson : json.getUnitUsageRecords()) {
             verifyNonNullOrEmpty(unitUsageRecordJson.getUnitType(), "UnitUsageRecordJson unitType need to be set");
             Preconditions.checkArgument(Iterables.size(unitUsageRecordJson.getUsageRecords()) > 0,
@@ -127,63 +130,56 @@ public class UsageResource extends JaxRsResourceBase {
                 verifyNonNull(usageRecordJson.getRecordDate(), "UsageRecordJson recordDate needs to be set");
             }
         }
-        final CallContext callContext = context.createCallContextNoAccountId(createdBy, reason, comment, request);
+        final CallContext callContextNoAccount = context.createCallContextNoAccountId(createdBy, reason, comment, request);
         // Verify subscription exists..
-        final Entitlement entitlement = entitlementApi.getEntitlementForId(json.getSubscriptionId(), callContext);
+        final Entitlement entitlement = entitlementApi.getEntitlementForId(json.getSubscriptionId(), false, callContextNoAccount);
         if (entitlement.getEffectiveEndDate() != null) {
-            final LocalDate highestRecordDate = getHighestRecordDate(json.getUnitUsageRecords());
+            final DateTime highestRecordDate = getHighestRecordDate(json.getUnitUsageRecords());
             if (entitlement.getEffectiveEndDate().compareTo(highestRecordDate) < 0) {
                 return Response.status(Status.BAD_REQUEST).build();
             }
         }
 
         final SubscriptionUsageRecord record = json.toSubscriptionUsageRecord();
+        // See this discussion: https://github.com/killbill/killbill/pull/1861#discussion_r1199581600
+        final CallContext callContext = context.createCallContextWithAccountId(entitlement.getAccountId(), createdBy, reason, comment, request);
         usageUserApi.recordRolledUpUsage(record, callContext);
         return Response.status(Status.CREATED).build();
     }
 
     @VisibleForTesting
-    LocalDate getHighestRecordDate(final List<UnitUsageRecordJson> records) {
-        final Iterable<Iterable<LocalDate>> recordedDates = Iterables.transform(records, new Function<UnitUsageRecordJson, Iterable<LocalDate>>() {
-
-            @Override
-            public Iterable<LocalDate> apply(final UnitUsageRecordJson input) {
-                final Iterable<LocalDate> result = Iterables.transform(input.getUsageRecords(), new Function<UsageRecordJson, LocalDate>() {
-                    @Override
-                    public LocalDate apply(final UsageRecordJson input) {
-                        return input.getRecordDate();
-                    }
-                });
-                return result;
-            }
-        });
-        final Iterable<LocalDate> sortedRecordedDates = Ordering.<LocalDate>natural()
-                .reverse()
-                .sortedCopy(Iterables.concat(recordedDates));
-
-        return Iterables.getFirst(sortedRecordedDates, null);
+    DateTime getHighestRecordDate(final List<UnitUsageRecordJson> records) {
+        return records.stream()
+                      .map(UnitUsageRecordJson::getUsageRecords) // stream of List<UsageRecordJson>
+                      .flatMap(Collection::stream) // flattened, so UsageRecordJson instead of List<UsageRecordJson>
+                      .map(UsageRecordJson::getRecordDate) // get "recordDate"
+                      .max(Comparator.naturalOrder()) // Same as ".sorted(Comparator.reverseOrder()).findFirst()"
+                      .orElse(null);
     }
 
     @TimedResource
     @GET
     @Path("/{subscriptionId:" + UUID_PATTERN + "}/{unitType}")
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Retrieve usage for a subscription and unit type", response = RolledUpUsageJson.class)
-    @ApiResponses(value = {@ApiResponse(code = 400, message = "Missing start date or end date")})
+    @Operation(summary = "Retrieve usage for a subscription and unit type")
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "successful operation", content = @Content(mediaType = "application/json", schema = @Schema(implementation = RolledUpUsageJson.class))),
+                           @ApiResponse(responseCode = "400", description = "Missing start date or end date")})
     public Response getUsage(@PathParam("subscriptionId") final UUID subscriptionId,
                              @PathParam("unitType") final String unitType,
                              @QueryParam(QUERY_START_DATE) final String startDate,
                              @QueryParam(QUERY_END_DATE) final String endDate,
-                             @javax.ws.rs.core.Context final HttpServletRequest request) {
+                             @QueryParam(QUERY_PLUGIN_PROPERTY) final List<String> pluginPropertiesString,
+                             @jakarta.ws.rs.core.Context final HttpServletRequest request) {
         if (startDate == null || endDate == null) {
             return Response.status(Status.BAD_REQUEST).build();
         }
         final TenantContext tenantContext = context.createTenantContextNoAccountId(request);
+        final Iterable<PluginProperty> pluginProperties = extractPluginProperties(pluginPropertiesString);
 
-        final LocalDate usageStartDate = LOCAL_DATE_FORMATTER.parseLocalDate(startDate);
-        final LocalDate usageEndDate = LOCAL_DATE_FORMATTER.parseLocalDate(endDate);
+        final DateTime usageStartDate = DATE_TIME_FORMATTER.parseDateTime(startDate);
+        final DateTime usageEndDate = DATE_TIME_FORMATTER.parseDateTime(endDate);
 
-        final RolledUpUsage usage = usageUserApi.getUsageForSubscription(subscriptionId, unitType, usageStartDate, usageEndDate, tenantContext);
+        final RolledUpUsage usage = usageUserApi.getUsageForSubscription(subscriptionId, unitType, usageStartDate, usageEndDate, pluginProperties, tenantContext);
         final RolledUpUsageJson result = new RolledUpUsageJson(usage);
         return Response.status(Status.OK).entity(result).build();
     }
@@ -192,24 +188,27 @@ public class UsageResource extends JaxRsResourceBase {
     @GET
     @Path("/{subscriptionId:" + UUID_PATTERN + "}")
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Retrieve usage for a subscription", response = RolledUpUsageJson.class)
-    @ApiResponses(value = {@ApiResponse(code = 400, message = "Missing start date or end date")})
+    @Operation(summary = "Retrieve usage for a subscription")
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "successful operation", content = @Content(mediaType = "application/json", schema = @Schema(implementation = RolledUpUsageJson.class))),
+                           @ApiResponse(responseCode = "400", description = "Missing start date or end date")})
     public Response getAllUsage(@PathParam("subscriptionId") final UUID subscriptionId,
                                 @QueryParam(QUERY_START_DATE) final String startDate,
                                 @QueryParam(QUERY_END_DATE) final String endDate,
-                                @javax.ws.rs.core.Context final HttpServletRequest request) {
+                                @QueryParam(QUERY_PLUGIN_PROPERTY) final List<String> pluginPropertiesString,
+                                @jakarta.ws.rs.core.Context final HttpServletRequest request) {
 
         if (startDate == null || endDate == null) {
             return Response.status(Status.BAD_REQUEST).build();
         }
         final TenantContext tenantContext = context.createTenantContextNoAccountId(request);
+        final Iterable<PluginProperty> pluginProperties = extractPluginProperties(pluginPropertiesString);
 
-        final LocalDate usageStartDate = LOCAL_DATE_FORMATTER.parseLocalDate(startDate);
-        final LocalDate usageEndDate = LOCAL_DATE_FORMATTER.parseLocalDate(endDate);
+        final DateTime usageStartDate = DATE_TIME_FORMATTER.parseDateTime(startDate);
+        final DateTime usageEndDate = DATE_TIME_FORMATTER.parseDateTime(endDate);
 
         // The current JAXRS API only allows to look for one transition
-        final List<LocalDate> startEndDate = ImmutableList.<LocalDate>builder().add(usageStartDate).add(usageEndDate).build();
-        final List<RolledUpUsage> usage = usageUserApi.getAllUsageForSubscription(subscriptionId, startEndDate, tenantContext);
+        final List<DateTime> startEndDate = List.of(usageStartDate, usageEndDate);
+        final List<RolledUpUsage> usage = usageUserApi.getAllUsageForSubscription(subscriptionId, startEndDate, pluginProperties, tenantContext);
         final RolledUpUsageJson result = new RolledUpUsageJson(usage.get(0));
         return Response.status(Status.OK).entity(result).build();
     }

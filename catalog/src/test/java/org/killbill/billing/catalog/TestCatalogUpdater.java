@@ -20,6 +20,7 @@ package org.killbill.billing.catalog;
 import java.io.ByteArrayInputStream;
 import java.math.BigDecimal;
 import java.nio.charset.Charset;
+import java.util.Collections;
 
 import org.joda.time.DateTime;
 import org.killbill.billing.ErrorCode;
@@ -37,13 +38,11 @@ import org.killbill.billing.catalog.api.SimplePlanDescriptor;
 import org.killbill.billing.catalog.api.StaticCatalog;
 import org.killbill.billing.catalog.api.TimeUnit;
 import org.killbill.billing.catalog.api.user.DefaultSimplePlanDescriptor;
+import org.killbill.commons.utils.io.Resources;
 import org.killbill.xmlloader.XMLLoader;
 import org.killbill.xmlloader.XMLWriter;
 import org.testng.Assert;
 import org.testng.annotations.Test;
-
-import com.google.common.collect.ImmutableList;
-import com.google.common.io.Resources;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNull;
@@ -65,7 +64,7 @@ public class TestCatalogUpdater extends CatalogTestSuiteNoDB {
     @Test(groups = "fast", description = "https://github.com/killbill/killbill/issues/842")
     public void testCreateAmbiguousPlan() throws CatalogApiException {
         final DateTime now = clock.getUTCNow();
-        final SimplePlanDescriptor desc = new DefaultSimplePlanDescriptor("foo-monthly-12345", "Foo", ProductCategory.BASE, Currency.EUR, BigDecimal.TEN, BillingPeriod.MONTHLY, 0, TimeUnit.UNLIMITED, ImmutableList.<String>of());
+        final SimplePlanDescriptor desc = new DefaultSimplePlanDescriptor("foo-monthly-12345", "Foo", ProductCategory.BASE, Currency.EUR, BigDecimal.TEN, BillingPeriod.MONTHLY, 0, TimeUnit.UNLIMITED, Collections.emptyList());
 
         final CatalogUpdater catalogUpdater = new CatalogUpdater(now, desc.getCurrency());
         catalogUpdater.addSimplePlanDescriptor(desc);
@@ -97,7 +96,7 @@ public class TestCatalogUpdater extends CatalogTestSuiteNoDB {
     public void testAddNoTrialPlanOnFirstCatalog() throws CatalogApiException {
 
         final DateTime now = clock.getUTCNow();
-        final SimplePlanDescriptor desc = new DefaultSimplePlanDescriptor("foo-monthly", "Foo", ProductCategory.BASE, Currency.EUR, BigDecimal.TEN, BillingPeriod.MONTHLY, 0, TimeUnit.UNLIMITED, ImmutableList.<String>of());
+        final SimplePlanDescriptor desc = new DefaultSimplePlanDescriptor("foo-monthly", "Foo", ProductCategory.BASE, Currency.EUR, BigDecimal.TEN, BillingPeriod.MONTHLY, 0, TimeUnit.UNLIMITED, Collections.emptyList());
 
         final CatalogUpdater catalogUpdater = new CatalogUpdater(now, desc.getCurrency());
 
@@ -137,7 +136,7 @@ public class TestCatalogUpdater extends CatalogTestSuiteNoDB {
     public void testAddTrialPlanOnFirstCatalog() throws CatalogApiException {
 
         final DateTime now = clock.getUTCNow();
-        final SimplePlanDescriptor desc = new DefaultSimplePlanDescriptor("foo-monthly", "Foo", ProductCategory.BASE, Currency.EUR, BigDecimal.TEN, BillingPeriod.MONTHLY, 14, TimeUnit.DAYS, ImmutableList.<String>of());
+        final SimplePlanDescriptor desc = new DefaultSimplePlanDescriptor("foo-monthly", "Foo", ProductCategory.BASE, Currency.EUR, BigDecimal.TEN, BillingPeriod.MONTHLY, 14, TimeUnit.DAYS, Collections.emptyList());
 
         final CatalogUpdater catalogUpdater = new CatalogUpdater(now, desc.getCurrency());
 
@@ -189,7 +188,7 @@ public class TestCatalogUpdater extends CatalogTestSuiteNoDB {
 
         final CatalogUpdater catalogUpdater = new CatalogUpdater(originalCatalog);
 
-        final SimplePlanDescriptor desc = new DefaultSimplePlanDescriptor("standard-annual", "Standard", ProductCategory.BASE, Currency.USD, BigDecimal.TEN, BillingPeriod.MONTHLY, 0, TimeUnit.UNLIMITED, ImmutableList.<String>of());
+        final SimplePlanDescriptor desc = new DefaultSimplePlanDescriptor("standard-annual", "Standard", ProductCategory.BASE, Currency.USD, BigDecimal.TEN, BillingPeriod.MONTHLY, 0, TimeUnit.UNLIMITED, Collections.emptyList());
         catalogUpdater.addSimplePlanDescriptor(desc);
 
         final StandaloneCatalog catalog = catalogUpdater.getCatalog();
@@ -214,6 +213,41 @@ public class TestCatalogUpdater extends CatalogTestSuiteNoDB {
     }
 
     @Test(groups = "fast")
+    public void testAddPlanWithNullTrailLengthOnExistingCatalog() throws Exception {
+
+        final StandaloneCatalog originalCatalog = getCatalog("SpyCarBasic.xml");
+        assertEquals(originalCatalog.getPriceLists().getAllPriceLists().size(), 1);
+        assertEquals(originalCatalog.getPriceLists().getAllPriceLists().get(0).getName(), new PriceListDefault().getName());
+        assertEquals(originalCatalog.getPriceLists().getAllPriceLists().get(0).getPlans().size(), 3);
+
+        final CatalogUpdater catalogUpdater = new CatalogUpdater(originalCatalog);
+
+        final SimplePlanDescriptor desc = new DefaultSimplePlanDescriptor("standard-annual", "Standard", ProductCategory.BASE, Currency.USD, BigDecimal.TEN, BillingPeriod.MONTHLY, null, TimeUnit.UNLIMITED, Collections.emptyList());
+        catalogUpdater.addSimplePlanDescriptor(desc);
+
+        final StandaloneCatalog catalog = catalogUpdater.getCatalog();
+
+        final Plan plan = catalog.findPlan("standard-annual");
+        assertEquals(plan.getName(), "standard-annual");
+
+        assertEquals(plan.getInitialPhases().length, 0);
+        assertEquals(plan.getFinalPhase().getPhaseType(), PhaseType.EVERGREEN);
+        assertNull(plan.getFinalPhase().getFixed());
+        assertEquals(plan.getFinalPhase().getName(), "standard-annual-evergreen");
+
+        assertEquals(plan.getFinalPhase().getRecurring().getBillingPeriod(), BillingPeriod.MONTHLY);
+        assertEquals(plan.getFinalPhase().getRecurring().getRecurringPrice().getPrices().length, 1);
+        assertEquals(plan.getFinalPhase().getRecurring().getRecurringPrice().getPrices()[0].getValue(), BigDecimal.TEN);
+        assertEquals(plan.getFinalPhase().getRecurring().getRecurringPrice().getPrices()[0].getCurrency(), Currency.USD);
+
+        assertEquals(catalog.getPriceLists().getAllPriceLists().size(), 1);
+        final PriceList priceList = catalog.getPriceLists().getAllPriceLists().get(0);
+        assertEquals(priceList.getName(), new PriceListDefault().getName());
+        assertEquals(priceList.getPlans().size(), 4);
+    }
+
+
+    @Test(groups = "fast")
     public void testAddExistingPlanWithNewCurrency() throws Exception {
         final StandaloneCatalog originalCatalog = getCatalog("SpyCarBasic.xml");
         assertEquals(originalCatalog.getPriceLists().getAllPriceLists().size(), 1);
@@ -222,7 +256,7 @@ public class TestCatalogUpdater extends CatalogTestSuiteNoDB {
 
         final CatalogUpdater catalogUpdater = new CatalogUpdater(originalCatalog);
 
-        final SimplePlanDescriptor desc = new DefaultSimplePlanDescriptor("standard-monthly", "Standard", ProductCategory.BASE, Currency.EUR, BigDecimal.TEN, BillingPeriod.MONTHLY, 30, TimeUnit.DAYS, ImmutableList.<String>of());
+        final SimplePlanDescriptor desc = new DefaultSimplePlanDescriptor("standard-monthly", "Standard", ProductCategory.BASE, Currency.EUR, BigDecimal.TEN, BillingPeriod.MONTHLY, 30, TimeUnit.DAYS, Collections.emptyList());
         catalogUpdater.addSimplePlanDescriptor(desc);
 
         final StandaloneCatalog catalog = catalogUpdater.getCatalog();
@@ -254,31 +288,31 @@ public class TestCatalogUpdater extends CatalogTestSuiteNoDB {
         CatalogUpdater catalogUpdater = new CatalogUpdater(originalCatalog);
 
         // Existing Plan has a 30 days trial => try with no TRIAL
-        SimplePlanDescriptor desc = new DefaultSimplePlanDescriptor("standard-monthly", "Standard", ProductCategory.BASE, Currency.EUR, BigDecimal.TEN, BillingPeriod.MONTHLY, 0, TimeUnit.DAYS, ImmutableList.<String>of());
+        SimplePlanDescriptor desc = new DefaultSimplePlanDescriptor("standard-monthly", "Standard", ProductCategory.BASE, Currency.EUR, BigDecimal.TEN, BillingPeriod.MONTHLY, 0, TimeUnit.DAYS, Collections.emptyList());
         addBadSimplePlanDescriptor(catalogUpdater, desc);
 
         // Existing Plan has a 30 days trial => try different trial length
-        desc = new DefaultSimplePlanDescriptor("standard-monthly", "Standard", ProductCategory.BASE, Currency.EUR, BigDecimal.TEN, BillingPeriod.MONTHLY, 14, TimeUnit.DAYS, ImmutableList.<String>of());
+        desc = new DefaultSimplePlanDescriptor("standard-monthly", "Standard", ProductCategory.BASE, Currency.EUR, BigDecimal.TEN, BillingPeriod.MONTHLY, 14, TimeUnit.DAYS, Collections.emptyList());
         addBadSimplePlanDescriptor(catalogUpdater, desc);
 
         // Existing Plan has a 30 days trial => try different trial unit
-        desc = new DefaultSimplePlanDescriptor("standard-monthly", "Standard", ProductCategory.BASE, Currency.EUR, BigDecimal.TEN, BillingPeriod.MONTHLY, 30, TimeUnit.MONTHS, ImmutableList.<String>of());
+        desc = new DefaultSimplePlanDescriptor("standard-monthly", "Standard", ProductCategory.BASE, Currency.EUR, BigDecimal.TEN, BillingPeriod.MONTHLY, 30, TimeUnit.MONTHS, Collections.emptyList());
         addBadSimplePlanDescriptor(catalogUpdater, desc);
 
         // Existing Plan has a MONTHLY recurring => try with ANNUAL BillingPeriod
-        desc = new DefaultSimplePlanDescriptor("standard-monthly", "Standard", ProductCategory.BASE, Currency.EUR, BigDecimal.TEN, BillingPeriod.ANNUAL, 30, TimeUnit.DAYS, ImmutableList.<String>of());
+        desc = new DefaultSimplePlanDescriptor("standard-monthly", "Standard", ProductCategory.BASE, Currency.EUR, BigDecimal.TEN, BillingPeriod.ANNUAL, 30, TimeUnit.DAYS, Collections.emptyList());
         addBadSimplePlanDescriptor(catalogUpdater, desc);
 
         // Existing Plan has a discount phase
-        desc = new DefaultSimplePlanDescriptor("dynamic-monthly", "Dynamic", ProductCategory.BASE, Currency.EUR, BigDecimal.TEN, BillingPeriod.MONTHLY, 30, TimeUnit.MONTHS, ImmutableList.<String>of());
+        desc = new DefaultSimplePlanDescriptor("dynamic-monthly", "Dynamic", ProductCategory.BASE, Currency.EUR, BigDecimal.TEN, BillingPeriod.MONTHLY, 30, TimeUnit.MONTHS, Collections.emptyList());
         addBadSimplePlanDescriptor(catalogUpdater, desc);
 
         // Existing Plan has final fixedterm phase
-        desc = new DefaultSimplePlanDescriptor("superdynamic-fixedterm", "SuperDynamic", ProductCategory.BASE, Currency.EUR, BigDecimal.TEN, BillingPeriod.MONTHLY, 30, TimeUnit.DAYS, ImmutableList.<String>of());
+        desc = new DefaultSimplePlanDescriptor("superdynamic-fixedterm", "SuperDynamic", ProductCategory.BASE, Currency.EUR, BigDecimal.TEN, BillingPeriod.MONTHLY, 30, TimeUnit.DAYS, Collections.emptyList());
         addBadSimplePlanDescriptor(catalogUpdater, desc);
 
         // Existing Plan a different recurring price ($100)
-        desc = new DefaultSimplePlanDescriptor("standard-monthly", "Standard", ProductCategory.BASE, Currency.USD, BigDecimal.TEN, BillingPeriod.MONTHLY, 30, TimeUnit.DAYS, ImmutableList.<String>of());
+        desc = new DefaultSimplePlanDescriptor("standard-monthly", "Standard", ProductCategory.BASE, Currency.USD, BigDecimal.TEN, BillingPeriod.MONTHLY, 30, TimeUnit.DAYS, Collections.emptyList());
         addBadSimplePlanDescriptor(catalogUpdater, desc);
     }
 
@@ -339,7 +373,7 @@ public class TestCatalogUpdater extends CatalogTestSuiteNoDB {
 
         final CatalogUpdater catalogUpdater = new CatalogUpdater(originalCatalog);
 
-        final SimplePlanDescriptor desc = new DefaultSimplePlanDescriptor("dynamic-annual", "Dynamic", ProductCategory.BASE, Currency.USD, BigDecimal.TEN, BillingPeriod.MONTHLY, 14, TimeUnit.DAYS, ImmutableList.<String>of());
+        final SimplePlanDescriptor desc = new DefaultSimplePlanDescriptor("dynamic-annual", "Dynamic", ProductCategory.BASE, Currency.USD, BigDecimal.TEN, BillingPeriod.MONTHLY, 14, TimeUnit.DAYS, Collections.emptyList());
         catalogUpdater.addSimplePlanDescriptor(desc);
 
         final String expectedXML = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n" +
@@ -423,8 +457,8 @@ public class TestCatalogUpdater extends CatalogTestSuiteNoDB {
                                    "                    <fixed type=\"ONE_TIME\">\n" +
                                    "                        <fixedPrice>\n" +
                                    "                            <price>\n" +
-                                   "<currency>USD</currency>\n" +
-                                   "<value>0</value>\n" +
+                                   "                                <currency>USD</currency>\n" +
+                                   "                                <value>0</value>\n" +
                                    "                            </price>\n" +
                                    "                        </fixedPrice>\n" +
                                    "                    </fixed>\n" +
@@ -574,7 +608,7 @@ public class TestCatalogUpdater extends CatalogTestSuiteNoDB {
                                    "</catalog>\n";
 
         assertEquals(catalogUpdater.getCatalogXML(internalCallContext), expectedXML);
-        System.err.println(catalogUpdater.getCatalogXML(internalCallContext));
+        // System.err.println(catalogUpdater.getCatalogXML(internalCallContext));
     }
 
     private StandaloneCatalog enhanceOriginalCatalogForInvalidTestCases(final String catalogName) throws Exception {
@@ -596,7 +630,7 @@ public class TestCatalogUpdater extends CatalogTestSuiteNoDB {
 
         final DefaultPlanPhase evergreenPhase1 = new DefaultPlanPhase();
         evergreenPhase1.setPhaseType(PhaseType.EVERGREEN);
-        evergreenPhase1.setDuration(new DefaultDuration().setUnit(TimeUnit.MONTHS).setNumber(1));
+        evergreenPhase1.setDuration(new DefaultDuration().setUnit(TimeUnit.UNLIMITED));
         evergreenPhase1.setRecurring(new DefaultRecurring().setBillingPeriod(BillingPeriod.MONTHLY).setRecurringPrice(new DefaultInternationalPrice().setPrices(new DefaultPrice[]{new DefaultPrice().setCurrency(Currency.USD).setValue(BigDecimal.TEN)})));
 
         // Add a Plan with a DISCOUNT phase

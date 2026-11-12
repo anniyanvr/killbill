@@ -16,10 +16,12 @@
 
 package org.killbill.billing.subscription.api.transfer;
 
+import java.util.Map;
 import java.util.UUID;
 
 import org.joda.time.DateTime;
 
+import org.killbill.billing.entitlement.api.BcdTransfer;
 import org.killbill.billing.subscription.api.user.SubscriptionBaseBundle;
 import org.killbill.billing.util.callcontext.CallContext;
 
@@ -32,15 +34,17 @@ public interface SubscriptionBaseTransferApi {
      * @param sourceAccountId   the unique id for the account on which the bundle will be transferred from
      * @param destAccountId     the unique id for the account on which the bundle will be transferred to
      * @param bundleKey         the externalKey for the bundle
+     * @param subExtKeysMap     a map for all new subscription external Keys
      * @param requestedDate     the date at which this transfer should occur
      * @param transferAddOn     whether or not we should also transfer ADD_ON subscriptions existing on that {@code SubscriptionBaseBundle}
      * @param cancelImmediately whether cancellation on the sourceAccount occurs immediately
+     * @param bcdTransfer       policy to drive what to do with per-subscriptipon bcd
      * @param context           the user callcontext
      * @return the newly created {@code SubscriptionBaseBundle}
      * @throws SubscriptionBaseTransferApiException
      *          if the system could not transfer the {@code SubscriptionBaseBundle}
      */
-    public SubscriptionBaseBundle transferBundle(final UUID sourceAccountId, final UUID destAccountId, final String bundleKey, final DateTime requestedDate,
-                                             final boolean transferAddOn, final boolean cancelImmediately, final CallContext context)
+    public SubscriptionBaseBundle transferBundle(final UUID sourceAccountId, final UUID destAccountId, final String bundleKey, final Map<UUID, String> subExtKeysMap, final DateTime requestedDate,
+                                                 final boolean transferAddOn, final boolean cancelImmediately, final BcdTransfer bcdTransfer, final CallContext context)
             throws SubscriptionBaseTransferApiException;
 }

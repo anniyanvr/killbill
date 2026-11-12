@@ -18,11 +18,17 @@
 package org.killbill.billing.invoice.generator;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 import javax.annotation.Nullable;
 
@@ -35,12 +41,7 @@ import org.killbill.billing.invoice.api.InvoiceItem;
 import org.killbill.billing.invoice.api.InvoiceItemType;
 import org.killbill.billing.invoice.api.InvoiceStatus;
 import org.killbill.billing.invoice.model.DefaultInvoice;
-
-import com.google.common.base.Objects;
-import com.google.common.base.Predicate;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Iterables;
+import org.killbill.commons.utils.collect.Iterables;
 
 public class InvoiceWithMetadata {
 
@@ -48,7 +49,7 @@ public class InvoiceWithMetadata {
 
     private DefaultInvoice invoice;
     private final Set<TrackingRecordId> trackingIds;
-    private final Map<UUID, DateTime> chargedThroughDates;
+    private final Map<DateTime, List<UUID>> chargedThroughDates;
     private final boolean filterZeroUsageItems;
 
     public InvoiceWithMetadata(final DefaultInvoice originalInvoice,
@@ -91,15 +92,13 @@ public class InvoiceWithMetadata {
         if (invoice != null ) {
             // Filter $0 USAGE items if specified by config
             if (filterZeroUsageItems) {
-                final Iterable<InvoiceItem> resultingItems = Iterables.filter(invoice.getInvoiceItems(), new Predicate<InvoiceItem>() {
-                    @Override
-                    public boolean apply(final InvoiceItem invoiceItem) {
-                        return invoiceItem.getInvoiceItemType() != InvoiceItemType.USAGE ||
-                               invoiceItem.getAmount().compareTo(BigDecimal.ZERO) != 0 ||
-                               (invoiceItem.getQuantity() != null &&  invoiceItem.getQuantity() > 0);
-                    }
-                });
-                final ImmutableList<InvoiceItem> filteredItems = ImmutableList.copyOf(resultingItems);
+                final List<InvoiceItem> filteredItems = invoice
+                        .getInvoiceItems()
+                        .stream()
+                        .filter(invoiceItem -> invoiceItem.getInvoiceItemType() != InvoiceItemType.USAGE ||
+                                               invoiceItem.getAmount().compareTo(BigDecimal.ZERO) != 0 ||
+                                               (invoiceItem.getQuantity() != null &&  invoiceItem.getQuantity().compareTo(BigDecimal.ZERO) > 0))
+                        .collect(Collectors.toUnmodifiableList());
                 // Reset invoice items with filtered list
                 invoice.getInvoiceItems().clear();
                 invoice.addInvoiceItems(filteredItems);
@@ -114,7 +113,7 @@ public class InvoiceWithMetadata {
     }
 
 
-    public static  final Map<UUID, DateTime> computeChargedThroughDates(final Invoice invoice, final InternalCallContext context)  {
+    public static Map<DateTime, List<UUID>> computeChargedThroughDates(final Invoice invoice, final InternalCallContext context)  {
         final Map<UUID, DateTime> chargedThroughDates;
         if (invoice != null &&
             invoice.getStatus() == InvoiceStatus.COMMITTED) /* See https://github.com/killbill/killbill/issues/1296 */ {
@@ -139,36 +138,43 @@ public class InvoiceWithMetadata {
                 }
             }
         } else {
-            chargedThroughDates = ImmutableMap.of();
+            chargedThroughDates = Collections.emptyMap();
         }
-        return chargedThroughDates;
+
+        final Map<DateTime, List<UUID>> perDateCTDs = new HashMap<>();
+        for (final Map.Entry<UUID,DateTime>  kv : chargedThroughDates.entrySet()) {
+            if (kv.getValue() != null) {
+                if (!perDateCTDs.containsKey(kv.getValue())) {
+                    perDateCTDs.put(kv.getValue(), new ArrayList<>());
+                }
+                perDateCTDs.get(kv.getValue()).add(kv.getKey());
+            }
+        }
+        return perDateCTDs;
+    }
+
+    private boolean isInvoiceItemsMatchCondition(final Predicate<? super InvoiceItem> condition) {
+        return invoice != null &&
+               invoice.getInvoiceItems() != null &&
+               !invoice.getInvoiceItems().isEmpty() &&
+               invoice.getInvoiceItems().stream().anyMatch(condition);
     }
 
     private boolean hasItemsForSubscription(final UUID subscriptionId, final InvoiceItemType invoiceItemType) {
-        return invoice != null && Iterables.any(invoice.getInvoiceItems(), new Predicate<InvoiceItem>() {
-            @Override
-            public boolean apply(final InvoiceItem input) {
-                return input.getInvoiceItemType() == invoiceItemType &&
-                       input.getSubscriptionId().equals(subscriptionId);
-            }
-        });
+        return isInvoiceItemsMatchCondition(input -> input.getInvoiceItemType() == invoiceItemType &&
+                                                     input.getSubscriptionId().equals(subscriptionId));
     }
 
     private boolean hasItemsForDate(final LocalDate date) {
-        return invoice != null && Iterables.any(invoice.getInvoiceItems(), new Predicate<InvoiceItem>() {
-            @Override
-            public boolean apply(final InvoiceItem input) {
-                return (input.getStartDate() != null && input.getStartDate().compareTo(date) == 0) ||
-                       (input.getEndDate() != null && input.getEndDate().compareTo(date) == 0);
-            }
-        });
+        return isInvoiceItemsMatchCondition(input -> (input.getStartDate() != null && input.getStartDate().compareTo(date) == 0) ||
+                                                     (input.getEndDate() != null && input.getEndDate().compareTo(date) == 0));
     }
 
     public Set<TrackingRecordId> getTrackingIds() {
         return trackingIds;
     }
 
-    public Map<UUID, DateTime>  getChargeThroughDates() {
+    public Map<DateTime, List<UUID>>  getChargeThroughDates() {
         return chargedThroughDates;
     }
 
@@ -221,10 +227,10 @@ public class InvoiceWithMetadata {
                 return false;
             }
             final TrackingRecordId that = (TrackingRecordId) o;
-            return Objects.equal(trackingId, that.trackingId) &&
-                   Objects.equal(subscriptionId, that.subscriptionId) &&
-                   Objects.equal(unitType, that.unitType) &&
-                   Objects.equal(recordDate, that.recordDate);
+            return Objects.equals(trackingId, that.trackingId) &&
+                   Objects.equals(subscriptionId, that.subscriptionId) &&
+                   Objects.equals(unitType, that.unitType) &&
+                   Objects.equals(recordDate, that.recordDate);
         }
 
         @Override
@@ -236,16 +242,16 @@ public class InvoiceWithMetadata {
                 return false;
             }
             final TrackingRecordId that = (TrackingRecordId) o;
-            return Objects.equal(trackingId, that.trackingId) &&
-                   Objects.equal(invoiceId, that.invoiceId) &&
-                   Objects.equal(subscriptionId, that.subscriptionId) &&
-                   Objects.equal(unitType, that.unitType) &&
-                   Objects.equal(recordDate, that.recordDate);
+            return Objects.equals(trackingId, that.trackingId) &&
+                   Objects.equals(invoiceId, that.invoiceId) &&
+                   Objects.equals(subscriptionId, that.subscriptionId) &&
+                   Objects.equals(unitType, that.unitType) &&
+                   Objects.equals(recordDate, that.recordDate);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hashCode(trackingId, invoiceId, subscriptionId, unitType, recordDate);
+            return Objects.hash(trackingId, invoiceId, subscriptionId, unitType, recordDate);
         }
     }
 

@@ -20,13 +20,19 @@ package org.killbill.billing.subscription.alignment;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 import org.joda.time.DateTime;
+import org.joda.time.DateTimeZone;
+import org.killbill.billing.callcontext.InternalTenantContext;
+import org.killbill.billing.catalog.DefaultDuration;
 import org.killbill.billing.catalog.api.CatalogApiException;
+import org.killbill.billing.catalog.api.Duration;
 import org.killbill.billing.catalog.api.PhaseType;
 import org.killbill.billing.catalog.api.Plan;
 import org.killbill.billing.catalog.api.PriceListSet;
 import org.killbill.billing.catalog.api.StaticCatalog;
+import org.killbill.billing.catalog.api.TimeUnit;
 import org.killbill.billing.subscription.SubscriptionTestSuiteNoDB;
 import org.killbill.billing.subscription.api.user.DefaultSubscriptionBase;
 import org.killbill.billing.subscription.api.user.SubscriptionBaseApiException;
@@ -66,6 +72,25 @@ public class TestPlanAligner extends SubscriptionTestSuiteNoDB {
         }
         super.beforeMethod();
         currentVersion = catalog.versionForDate(clock.getUTCNow());
+    }
+
+    @Test(groups = "fast")
+    public void testAddPhaseWithTimeZone() throws Exception {
+        final DateTime input = new DateTime(2023, 3, 1, 3, 47, 56, DateTimeZone.UTC);
+        final Duration duration = new DefaultDuration().setUnit(TimeUnit.MONTHS).setNumber(3);
+
+        final DateTime referenceTime = new DateTime(2023, 3, 1,3,47,56,  DateTimeZone.UTC);
+        final DateTimeZone tz = DateTimeZone.forID("America/New_York");
+
+        final DateTime inputLocalTz = input.toDateTime(tz);
+
+        final InternalTenantContext context = new InternalTenantContext(1L, 2L, tz, tz, referenceTime);
+        final DateTime result = planAligner.addDuration(input, duration, context);
+
+        // Note that initial time difference was 5 hours and now it is only 4 hours hence time component in UTC set to 2:47:56
+        final DateTime expected = new DateTime(2023, 5, 29, 2, 47, 56,  DateTimeZone.UTC);
+        Assert.assertEquals(result, expected);
+
     }
 
     @Test(groups = "fast")
@@ -379,13 +404,15 @@ public class TestPlanAligner extends SubscriptionTestSuiteNoDB {
 
     private DefaultSubscriptionBase createSubscription(final DateTime bundleStartDate, final DateTime alignStartDate, final String productName, final PhaseType phaseType) throws CatalogApiException {
         final SubscriptionBuilder builder = new SubscriptionBuilder();
+        builder.setId(UUID.randomUUID());
         builder.setBundleStartDate(bundleStartDate);
         // Make sure to set the dates apart
         builder.setAlignStartDate(new DateTime(alignStartDate));
 
         // Create the transitions
         final DefaultSubscriptionBase defaultSubscriptionBase = new DefaultSubscriptionBase(builder, null, clock);
-        final SubscriptionBaseEvent event = createSubscriptionEvent(builder.getAlignStartDate(),
+        final SubscriptionBaseEvent event = createSubscriptionEvent(defaultSubscriptionBase.getId(),
+                                                                    builder.getAlignStartDate(),
                                                                     productName,
                                                                     phaseType,
                                                                     ApiEventType.CREATE
@@ -394,9 +421,9 @@ public class TestPlanAligner extends SubscriptionTestSuiteNoDB {
         events.add(event);
         defaultSubscriptionBase.rebuildTransitions(events, catalog);
 
-        Assert.assertEquals(defaultSubscriptionBase.getAllTransitions().size(), 1);
-        Assert.assertNull(defaultSubscriptionBase.getAllTransitions().get(0).getPreviousPhase());
-        Assert.assertNotNull(defaultSubscriptionBase.getAllTransitions().get(0).getNextPhase());
+        Assert.assertEquals(defaultSubscriptionBase.getAllTransitions(false).size(), 1);
+        Assert.assertNull(defaultSubscriptionBase.getAllTransitions(false).get(0).getPreviousPhase());
+        Assert.assertNotNull(defaultSubscriptionBase.getAllTransitions(false).get(0).getNextPhase());
 
         return defaultSubscriptionBase;
     }
@@ -406,12 +433,14 @@ public class TestPlanAligner extends SubscriptionTestSuiteNoDB {
                                     final String previousProductName,
                                     final String newProductName,
                                     final PhaseType commonPhaseType) throws CatalogApiException {
-        final SubscriptionBaseEvent previousEvent = createSubscriptionEvent(defaultSubscriptionBase.getStartDate(),
+        final SubscriptionBaseEvent previousEvent = createSubscriptionEvent(defaultSubscriptionBase.getId(),
+                                                                            defaultSubscriptionBase.getStartDate(),
                                                                             previousProductName,
                                                                             commonPhaseType,
                                                                             ApiEventType.CREATE
                                                                            );
-        final SubscriptionBaseEvent event = createSubscriptionEvent(effectiveChangeDate,
+        final SubscriptionBaseEvent event = createSubscriptionEvent(defaultSubscriptionBase.getId(),
+                                                                    effectiveChangeDate,
                                                                     newProductName,
                                                                     commonPhaseType,
                                                                     ApiEventType.CHANGE
@@ -423,18 +452,20 @@ public class TestPlanAligner extends SubscriptionTestSuiteNoDB {
 
         defaultSubscriptionBase.rebuildTransitions(events, catalog);
 
-        final List<SubscriptionBaseTransition> newTransitions = defaultSubscriptionBase.getAllTransitions();
+        final List<SubscriptionBaseTransition> newTransitions = defaultSubscriptionBase.getAllTransitions(false);
         Assert.assertEquals(newTransitions.size(), 2);
         Assert.assertNull(newTransitions.get(0).getPreviousPhase());
         Assert.assertEquals(newTransitions.get(0).getNextPhase(), newTransitions.get(1).getPreviousPhase());
         Assert.assertNotNull(newTransitions.get(1).getNextPhase());
     }
 
-    private SubscriptionBaseEvent createSubscriptionEvent(final DateTime effectiveDate,
+    private SubscriptionBaseEvent createSubscriptionEvent(final UUID subscriptionId,
+                                                          final DateTime effectiveDate,
                                                           final String productName,
                                                           final PhaseType phaseType,
                                                           final ApiEventType apiEventType) {
         final ApiEventBuilder eventBuilder = new ApiEventBuilder();
+        eventBuilder.setSubscriptionId(subscriptionId);
         eventBuilder.setEffectiveDate(effectiveDate);
         eventBuilder.setEventPlan(productName);
         eventBuilder.setEventPlanPhase(productName + "-" + phaseType.toString().toLowerCase());

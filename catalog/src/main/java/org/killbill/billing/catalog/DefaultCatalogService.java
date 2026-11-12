@@ -18,7 +18,8 @@
 
 package org.killbill.billing.catalog;
 
-import javax.inject.Named;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
 
 import org.killbill.billing.callcontext.InternalTenantContext;
 import org.killbill.billing.catalog.api.CatalogApiException;
@@ -36,8 +37,6 @@ import org.killbill.billing.tenant.api.TenantKV.TenantKey;
 import org.killbill.billing.util.config.definition.CatalogConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.inject.Inject;
 
 public class DefaultCatalogService implements KillbillService, CatalogService {
 

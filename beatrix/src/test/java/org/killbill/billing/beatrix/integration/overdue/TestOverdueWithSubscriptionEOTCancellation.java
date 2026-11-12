@@ -74,8 +74,8 @@ public class TestOverdueWithSubscriptionEOTCancellation extends TestOverdueBase 
         final DefaultEntitlement baseEntitlement = createBaseEntitlementAndCheckForCompletion(account.getId(), "externalKey", productName, ProductCategory.BASE, term, NextEvent.CREATE, NextEvent.BLOCK, NextEvent.INVOICE);
         bundle = subscriptionApi.getSubscriptionBundle(baseEntitlement.getBundleId(), callContext);
 
-        invoiceChecker.checkInvoice(account.getId(), 1, callContext, new ExpectedInvoiceItemCheck(new LocalDate(2012, 5, 1), null, InvoiceItemType.FIXED, new BigDecimal("0")));
-        invoiceChecker.checkChargedThroughDate(baseEntitlement.getId(), new LocalDate(2012, 5, 1), callContext);
+        invoiceChecker.checkInvoice(account.getId(), 1, callContext, new ExpectedInvoiceItemCheck(new LocalDate(2012, 5, 1), new LocalDate(2012, 5, 31), InvoiceItemType.FIXED, new BigDecimal("0")));
+        invoiceChecker.checkChargedThroughDate(baseEntitlement.getId(), new LocalDate(2012, 5, 31), callContext);
 
         final DefaultEntitlement addOn1 = addAOEntitlementAndCheckForCompletion(baseEntitlement.getBundleId(), "Holster", ProductCategory.ADD_ON, BillingPeriod.MONTHLY, NextEvent.CREATE, NextEvent.BLOCK, NextEvent.INVOICE);
 
@@ -94,15 +94,15 @@ public class TestOverdueWithSubscriptionEOTCancellation extends TestOverdueBase 
         // Should be in OD1
         checkODState("OD1");
 
-        final Subscription cancelledBaseSubscription = subscriptionApi.getSubscriptionForEntitlementId(baseEntitlement.getId(), callContext);
+        final Subscription cancelledBaseSubscription = subscriptionApi.getSubscriptionForEntitlementId(baseEntitlement.getId(), false, callContext);
         assertTrue(cancelledBaseSubscription.getState() == EntitlementState.CANCELLED);
-        assertEquals(cancelledBaseSubscription.getEffectiveEndDate(), new LocalDate(2012, 6, 05));
-        assertEquals(cancelledBaseSubscription.getBillingEndDate(), new LocalDate(2012, 6, 30));
+        assertEquals(internalCallContext.toLocalDate(cancelledBaseSubscription.getEffectiveEndDate()), new LocalDate(2012, 6, 05));
+        assertEquals(internalCallContext.toLocalDate(cancelledBaseSubscription.getBillingEndDate()), new LocalDate(2012, 6, 30));
 
-        final Subscription cancelledAddon1 = subscriptionApi.getSubscriptionForEntitlementId(addOn1.getId(), callContext);
+        final Subscription cancelledAddon1 = subscriptionApi.getSubscriptionForEntitlementId(addOn1.getId(), false, callContext);
         assertTrue(cancelledAddon1.getState() == EntitlementState.CANCELLED);
-        assertEquals(cancelledAddon1.getEffectiveEndDate(), new LocalDate(2012, 6, 05));
-        assertEquals(cancelledAddon1.getBillingEndDate(), new LocalDate(2012, 6, 30));
+        assertEquals(internalCallContext.toLocalDate(cancelledAddon1.getEffectiveEndDate()), new LocalDate(2012, 6, 05));
+        assertEquals(internalCallContext.toLocalDate(cancelledAddon1.getBillingEndDate()), new LocalDate(2012, 6, 30));
 
         // Payment Retry on the 2012-6-8
         addDaysAndCheckForCompletion(2, NextEvent.PAYMENT_ERROR, NextEvent.INVOICE_PAYMENT_ERROR);

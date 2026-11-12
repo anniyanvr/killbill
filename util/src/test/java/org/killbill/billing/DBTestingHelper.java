@@ -27,22 +27,21 @@ import java.sql.SQLFeatureNotSupportedException;
 import java.sql.SQLInvalidAuthorizationSpecException;
 import java.sql.SQLNonTransientConnectionException;
 import java.util.Enumeration;
+import java.util.Objects;
 
 import javax.sql.DataSource;
 
 import org.killbill.billing.platform.test.PlatformDBTestingHelper;
 import org.killbill.billing.util.glue.IDBISetup;
-import org.killbill.billing.util.io.IOUtils;
 import org.killbill.commons.embeddeddb.EmbeddedDB;
 import org.killbill.commons.jdbi.guice.DBIProvider;
+import org.killbill.commons.utils.io.IOUtils;
 import org.skife.jdbi.v2.DBI;
 import org.skife.jdbi.v2.IDBI;
 import org.skife.jdbi.v2.ResultSetMapperFactory;
 import org.skife.jdbi.v2.tweak.ResultSetMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.common.base.MoreObjects;
 
 public class DBTestingHelper extends PlatformDBTestingHelper {
 
@@ -93,10 +92,15 @@ public class DBTestingHelper extends PlatformDBTestingHelper {
                 installDDLSilently(resourceName);
             }
         }
+
+        // MySQL client 9.0 support
+        if ("true".equals(System.getProperty("org.killbill.billing.dbi.test.mysql.v9"))) {
+            getInstance().executeScript(String.format("ALTER USER '%s'@'%%' IDENTIFIED WITH caching_sha2_password BY '%s'", instance.getUsername(), instance.getPassword()));
+        }
     }
 
     private void installDDLSilently(final String resourceName) throws IOException {
-        final ClassLoader classLoader = MoreObjects.firstNonNull(Thread.currentThread().getContextClassLoader(), DBTestingHelper.class.getClassLoader());
+        final ClassLoader classLoader = Objects.requireNonNullElse(Thread.currentThread().getContextClassLoader(), DBTestingHelper.class.getClassLoader());
         final Enumeration<URL> resources = classLoader.getResources(resourceName);
         while (resources.hasMoreElements()) {
             final URL inputStream = resources.nextElement();

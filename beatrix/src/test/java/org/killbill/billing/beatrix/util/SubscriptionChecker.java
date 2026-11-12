@@ -21,7 +21,7 @@ package org.killbill.billing.beatrix.util;
 import java.util.List;
 import java.util.UUID;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.killbill.billing.util.cache.Cachable.CacheType;
 import org.killbill.billing.util.cache.CacheController;
@@ -71,7 +71,7 @@ public class SubscriptionChecker {
         final UUID tenantId = nonEntityDao.retrieveIdFromObject(context.getTenantRecordId(), ObjectType.TENANT, objectIdCacheController);
         final CallContext callContext = context.toCallContext(null, tenantId);
 
-        final SubscriptionBase subscription = subscriptionApi.getSubscriptionFromId(subscriptionId, context);
+        final SubscriptionBase subscription = subscriptionApi.getSubscriptionFromId(subscriptionId, false, context);
         Assert.assertNotNull(subscription);
         auditChecker.checkSubscriptionCreated(subscription.getBundleId(), subscriptionId, callContext);
 
@@ -84,6 +84,6 @@ public class SubscriptionChecker {
     }
 
     private List<SubscriptionBaseTransition> getSubscriptionEvents(final SubscriptionBase subscription) {
-        return subscription.getAllTransitions();
+        return subscription.getAllTransitions(false);
     }
 }

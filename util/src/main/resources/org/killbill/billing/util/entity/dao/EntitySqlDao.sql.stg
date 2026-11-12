@@ -134,6 +134,8 @@ allHistoryTableValues() ::= <<
 CHECK_TENANT(prefix) ::= "<prefix>tenant_record_id = :tenantRecordId"
 AND_CHECK_TENANT(prefix) ::= "and <CHECK_TENANT(prefix)>"
 
+indexHint() ::= <</*! FORCE INDEX (idx_<tableName()>_tenant_record) */>>
+
 getAll() ::= <<
 select
 <allTableFields("t.")>
@@ -162,7 +164,18 @@ order by t.<orderBy> <ordering>
 
 getRecordIdAtOffset(offset) ::= <<
 select <recordIdField("")>
-from <tableName()>
+from <tableName()> <indexHint()>
+where <CHECK_TENANT("")>
+order by <recordIdField("")> ASC
+limit 1 offset :offset
+;
+>>
+
+getRecordIdAtOffsetWithAccountRecordId(offset) ::= <<
+select <recordIdField("")>
+from <tableName()> <indexHint()>
+where <accountRecordIdField("")> = :accountRecordId
+<AND_CHECK_TENANT("")>
 order by <recordIdField("")> ASC
 limit 1 offset :offset
 ;
@@ -173,6 +186,16 @@ select
 count(1) as count
 from <tableName()> t
 where <CHECK_TENANT("t.")>
+<andCheckSoftDeletionWithComma("t.")>
+;
+>>
+
+getCountWithAccountRecordId() ::= <<
+select
+count(1) as count
+from <tableName()> t
+where <CHECK_TENANT("t.")>
+and <accountRecordIdField("t.")> = :accountRecordId
 <andCheckSoftDeletionWithComma("t.")>
 ;
 >>
@@ -241,6 +264,18 @@ where <accountRecordIdField("t.")> = :accountRecordId
 ;
 >>
 
+getByAccountRecordIdWithPaginationEnabled(accountRecordId) ::= <<
+select
+<allTableFields("t.")>
+from <tableName()> t
+where <accountRecordIdField("t.")> = :accountRecordId
+<andCheckSoftDeletionWithComma("t.")>
+<AND_CHECK_TENANT("t.")>
+<defaultOrderBy("t.")>
+limit :rowCount offset :offset
+;
+>>
+
 getByAccountRecordIdIncludedDeleted(accountRecordId) ::= <<
 select
 <allTableFields("t.")>
@@ -301,15 +336,16 @@ where <targetRecordIdField("t.")> = :targetRecordId
 ;
 >>
 
-searchQuery(prefix) ::= <<
-1 = 1
+/** The extra space between "|  (:" matters below */
+searchQuery(prefix, searchAttributes, logicalOperator) ::= <<
+<searchAttributes:{ x |  (:<x.bindingKey> IS NULL OR <prefix><x.column> <x.operator> :<x.bindingKey>) }; separator=logicalOperator>
 >>
 
-search(ordering) ::= <<
+search(ordering, searchAttributes, logicalOperator) ::= <<
 select
 <allTableFields("t.")>
 from <tableName()> t
-where (<searchQuery("t.")>)
+where (<searchQuery("t.", searchAttributes, logicalOperator)>)
 <andCheckSoftDeletionWithComma("t.")>
 <AND_CHECK_TENANT("t.")>
 order by <recordIdField("t.")> <ordering>
@@ -317,11 +353,11 @@ limit :rowCount offset :offset
 ;
 >>
 
-getSearchCount() ::= <<
+getSearchCount(searchAttributes, logicalOperator) ::= <<
 select
   count(1) as count
 from <tableName()> t
-where (<searchQuery("t.")>)
+where (<searchQuery("t.", searchAttributes, logicalOperator)>)
 <andCheckSoftDeletionWithComma("t.")>
 <AND_CHECK_TENANT("t.")>
 ;

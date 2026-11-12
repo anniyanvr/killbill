@@ -22,15 +22,16 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.stream.Collectors;
 
-import javax.annotation.Nullable;
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.shiro.SecurityUtils;
 import org.apache.shiro.authc.AuthenticationToken;
@@ -40,6 +41,7 @@ import org.apache.shiro.authz.AuthorizationInfo;
 import org.apache.shiro.mgt.DefaultSecurityManager;
 import org.apache.shiro.realm.AuthorizingRealm;
 import org.apache.shiro.realm.Realm;
+import org.apache.shiro.session.UnknownSessionException;
 import org.apache.shiro.subject.SimplePrincipalCollection;
 import org.apache.shiro.subject.Subject;
 import org.killbill.billing.ErrorCode;
@@ -47,24 +49,14 @@ import org.killbill.billing.security.Logical;
 import org.killbill.billing.security.Permission;
 import org.killbill.billing.security.SecurityApiException;
 import org.killbill.billing.security.api.SecurityApi;
+import org.killbill.billing.util.security.shiro.dao.RolesPermissionsModelDao;
+import org.killbill.commons.utils.Strings;
 import org.killbill.billing.util.callcontext.CallContext;
 import org.killbill.billing.util.callcontext.TenantContext;
-import org.killbill.billing.util.security.shiro.dao.RolesPermissionsModelDao;
 import org.killbill.billing.util.security.shiro.dao.UserDao;
-import org.killbill.billing.util.security.shiro.dao.UserRolesModelDao;
 import org.killbill.billing.util.security.shiro.realm.KillBillJdbcRealm;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.common.base.Function;
-import com.google.common.base.Functions;
-import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
-import com.google.common.base.Strings;
-import com.google.common.collect.Collections2;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
 
 public class DefaultSecurityApi implements SecurityApi {
 
@@ -87,7 +79,10 @@ public class DefaultSecurityApi implements SecurityApi {
 
         final Subject currentUser = SecurityUtils.getSubject();
         if (currentUser.isAuthenticated()) {
-            logout();
+            try {
+                logout();
+            } catch (final UnknownSessionException swallowme) {
+            }
         }
 
         // Workaround for https://issues.apache.org/jira/browse/SHIRO-510
@@ -134,7 +129,7 @@ public class DefaultSecurityApi implements SecurityApi {
     public Set<String> getCurrentUserPermissions(final TenantContext context) {
         final Subject subject = SecurityUtils.getSubject();
 
-        final Set<String> allPermissions = new HashSet<String>();
+        final Set<String> allPermissions = new HashSet<>();
         for (final Entry<Realm, Method> realmAndMethod : getAuthorizationInfoMethods.entrySet()) {
             try {
                 final AuthorizationInfo authorizationInfo = (AuthorizationInfo) realmAndMethod.getValue().invoke(realmAndMethod.getKey(), subject.getPrincipals());
@@ -181,7 +176,7 @@ public class DefaultSecurityApi implements SecurityApi {
 
     @Override
     public void checkCurrentUserPermissions(final List<Permission> permissions, final Logical logical, final TenantContext context) throws SecurityApiException {
-        final String[] permissionsString = Lists.<Permission, String>transform(permissions, Functions.toStringFunction()).toArray(new String[permissions.size()]);
+        final String[] permissionsString = permissions.stream().map(Permission::toString).toArray(String[]::new);
 
         try {
             final Subject subject = SecurityUtils.getSubject();
@@ -233,14 +228,9 @@ public class DefaultSecurityApi implements SecurityApi {
 
     @Override
     public List<String> getUserRoles(final String username, final TenantContext tenantContext) throws SecurityApiException {
-        final List<UserRolesModelDao> permissionsModelDao = userDao.getUserRoles(username);
-        return ImmutableList.copyOf(Iterables.transform(permissionsModelDao, new Function<UserRolesModelDao, String>() {
-            @Nullable
-            @Override
-            public String apply(final UserRolesModelDao input) {
-                return input.getRoleName();
-            }
-        }));
+        return userDao.getUserRoles(username).stream()
+                .map(input -> input == null ? null : input.getRoleName())
+                .collect(Collectors.toUnmodifiableList());
     }
 
     @Override
@@ -257,34 +247,33 @@ public class DefaultSecurityApi implements SecurityApi {
 
     @Override
     public List<String> getRoleDefinition(final String role, final TenantContext tenantContext) {
-        final List<RolesPermissionsModelDao> permissionsModelDao = userDao.getRoleDefinition(role);
-        return ImmutableList.copyOf(Iterables.transform(permissionsModelDao, new Function<RolesPermissionsModelDao, String>() {
-            @Nullable
-            @Override
-            public String apply(final RolesPermissionsModelDao input) {
-                return input.getPermission();
-            }
-        }));
+        return userDao.getRoleDefinition(role).stream()
+                .map(input -> input == null ? null : input.getPermission())
+                .collect(Collectors.toUnmodifiableList());
+    }
+
+    @Override
+    public Map<String, List<String>> getAvailableRoles(final TenantContext tenantContext) {
+        final Map<String, List<String>> result = new HashMap<>();
+        for (final RolesPermissionsModelDao rolePermission : userDao.getAllPermissions()) {
+            result.computeIfAbsent(rolePermission.getRoleName(), ignored -> new ArrayList<>())
+                              .add(rolePermission.getPermission());
+        }
+        return result;
     }
 
     private List<String> sanitizePermissions(final List<String> permissionsRaw) throws SecurityApiException {
         if (permissionsRaw == null) {
-            return ImmutableList.<String>of();
+            return Collections.emptyList();
         }
+        final Collection<String> permissions = permissionsRaw.stream()
+                .filter(permission -> permission != null && !permission.isEmpty())
+                .collect(Collectors.toUnmodifiableList());
 
-        final Collection<String> permissions = Collections2.<String>filter(Lists.<String, String>transform(permissionsRaw,
-                                                                                                           new Function<String, String>() {
-                                                                                                               @Override
-                                                                                                               public String apply(final String input) {
-                                                                                                                   return Strings.emptyToNull(input);
-                                                                                                               }
-                                                                                                           }),
-                                                                           Predicates.<String>notNull());
-
-        final Map<String, Set<String>> groupToValues = new HashMap<String, Set<String>>();
+        final Map<String, Set<String>> groupToValues = new HashMap<>();
         for (final String curPerm : permissions) {
             if ("*".equals(curPerm)) {
-                return ImmutableList.of("*");
+                return List.of("*");
             }
 
             final String[] permissionParts = curPerm.split(":");
@@ -305,11 +294,10 @@ public class DefaultSecurityApi implements SecurityApi {
             }
         }
 
-        final List<String> expandedPermissions = new ArrayList<String>();
-        for (final String group : groupToValues.keySet()) {
-            final Set<String> groupPermissions = groupToValues.get(group);
-            for (final String value : groupPermissions) {
-                expandedPermissions.add(String.format("%s:%s", group, value));
+        final List<String> expandedPermissions = new ArrayList<>();
+        for (final Entry<String, Set<String>> entry : groupToValues.entrySet()) {
+            for (final String value : entry.getValue()) {
+                expandedPermissions.add(String.format("%s:%s", entry.getKey(), value));
             }
         }
         return expandedPermissions;
@@ -317,12 +305,10 @@ public class DefaultSecurityApi implements SecurityApi {
 
     private void invalidateJDBCAuthorizationCache(final String username) {
         final Collection<Realm> realms = ((DefaultSecurityManager) SecurityUtils.getSecurityManager()).getRealms();
-        final KillBillJdbcRealm killBillJdbcRealm = (KillBillJdbcRealm) Iterables.tryFind(realms, new Predicate<Realm>() {
-            @Override
-            public boolean apply(@Nullable final Realm input) {
-                return (input instanceof KillBillJdbcRealm);
-            }
-        }).orNull();
+        final KillBillJdbcRealm killBillJdbcRealm = (KillBillJdbcRealm) realms.stream()
+                .filter(realm -> (realm instanceof KillBillJdbcRealm))
+                .findFirst()
+                .orElse(null);
 
         if (killBillJdbcRealm != null) {
             final SimplePrincipalCollection principals = new SimplePrincipalCollection();

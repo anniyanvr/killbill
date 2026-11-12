@@ -1,7 +1,8 @@
 /*
- * Copyright 2010-2013 Ning, Inc.
- * Copyright 2014-2017 Groupon, Inc
- * Copyright 2014-2017 The Billing Project, LLC
+ * Copyright 2010-2014 Ning, Inc.
+ * Copyright 2014-2020 Groupon, Inc
+ * Copyright 2020-2024 Equinix, Inc
+ * Copyright 2014-2024 The Billing Project, LLC
  *
  * The Billing Project licenses this file to you under the Apache License, version 2.0
  * (the "License"); you may not use this file except in compliance with the
@@ -21,7 +22,6 @@ package org.killbill.billing.account.api.user;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.Callable;
 
 import org.joda.time.DateTimeZone;
 import org.killbill.billing.ErrorCode;
@@ -40,11 +40,10 @@ import org.killbill.billing.tenant.dao.TenantModelDao;
 import org.killbill.billing.tenant.dao.TenantSqlDao;
 import org.killbill.billing.util.callcontext.CallContext;
 import org.killbill.billing.util.entity.Pagination;
+import org.killbill.commons.eventbus.Subscribe;
+import org.killbill.commons.utils.collect.Iterables;
 import org.testng.Assert;
 import org.testng.annotations.Test;
-
-import com.google.common.collect.ImmutableList;
-import com.google.common.eventbus.Subscribe;
 
 import static org.awaitility.Awaitility.await;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -76,21 +75,21 @@ public class TestDefaultAccountUserApi extends AccountTestSuiteWithEmbeddedDB {
         Assert.assertNull(search1.getNextOffset());
         Assert.assertEquals(search1.getMaxNbRecords(), (Long) 2L);
         Assert.assertEquals(search1.getTotalNbRecords(), (Long) 2L);
-        Assert.assertEquals(ImmutableList.<Account>copyOf(search1.iterator()).size(), 2);
+        Assert.assertEquals(Iterables.toUnmodifiableList(search1).size(), 2);
 
         final Pagination<Account> search2 = accountUserApi.searchAccounts("Inc.", 0L, 1L, callContext);
         Assert.assertEquals(search2.getCurrentOffset(), (Long) 0L);
         Assert.assertEquals(search2.getNextOffset(), (Long) 1L);
         Assert.assertEquals(search2.getMaxNbRecords(), (Long) 2L);
         Assert.assertEquals(search2.getTotalNbRecords(), (Long) 2L);
-        Assert.assertEquals(ImmutableList.<Account>copyOf(search2.iterator()).size(), 1);
+        Assert.assertEquals(Iterables.toUnmodifiableList(search2).size(), 1);
 
         final Pagination<Account> search3 = accountUserApi.searchAccounts("acme.com", 0L, 5L, callContext);
         Assert.assertEquals(search3.getCurrentOffset(), (Long) 0L);
         Assert.assertNull(search3.getNextOffset());
         Assert.assertEquals(search3.getMaxNbRecords(), (Long) 2L);
         Assert.assertEquals(search3.getTotalNbRecords(), (Long) 1L);
-        Assert.assertEquals(ImmutableList.<Account>copyOf(search3.iterator()).size(), 1);
+        Assert.assertEquals(Iterables.toUnmodifiableList(search3).size(), 1);
 
         // Exact search will fail
         final Pagination<Account> search4 = accountUserApi.searchAccounts("acme.com", -1L, 1L, callContext);
@@ -99,7 +98,7 @@ public class TestDefaultAccountUserApi extends AccountTestSuiteWithEmbeddedDB {
         // Not computed
         Assert.assertNull(search4.getMaxNbRecords());
         Assert.assertEquals(search4.getTotalNbRecords(), (Long) 0L);
-        Assert.assertEquals(ImmutableList.<Account>copyOf(search4.iterator()).size(), 0);
+        Assert.assertEquals(Iterables.toUnmodifiableList(search4).size(), 0);
 
         final Pagination<Account> search5 = accountUserApi.searchAccounts("john@acme.com", -1L, 1L, callContext);
         Assert.assertEquals(search5.getCurrentOffset(), (Long) 0L);
@@ -107,7 +106,81 @@ public class TestDefaultAccountUserApi extends AccountTestSuiteWithEmbeddedDB {
         // Not computed
         Assert.assertNull(search5.getMaxNbRecords());
         Assert.assertEquals(search5.getTotalNbRecords(), (Long) 1L);
-        Assert.assertEquals(ImmutableList.<Account>copyOf(search5.iterator()).size(), 1);
+        Assert.assertEquals(Iterables.toUnmodifiableList(search5).size(), 1);
+
+        final Pagination<Account> search6 = accountUserApi.searchAccounts("_q=1&email=john@acme.com", 0L, 5L, callContext);
+        Assert.assertEquals(search6.getCurrentOffset(), (Long) 0L);
+        Assert.assertNull(search6.getNextOffset());
+        Assert.assertEquals(search6.getMaxNbRecords(), (Long) 2L);
+        Assert.assertEquals(search6.getTotalNbRecords(), (Long) 1L);
+        Assert.assertEquals(Iterables.toUnmodifiableList(search6).size(), 1);
+
+        final Pagination<Account> search7 = accountUserApi.searchAccounts("_q=1&email=john@acme.com&currency=MXN", 0L, 5L, callContext);
+        Assert.assertEquals(search7.getCurrentOffset(), (Long) 0L);
+        Assert.assertNull(search7.getNextOffset());
+        Assert.assertEquals(search7.getMaxNbRecords(), (Long) 2L);
+        Assert.assertEquals(search7.getTotalNbRecords(), (Long) 1L);
+        Assert.assertEquals(Iterables.toUnmodifiableList(search7).size(), 1);
+
+        final Pagination<Account> search8 = accountUserApi.searchAccounts("_q=1&currency=MXN", 0L, 5L, callContext);
+        Assert.assertEquals(search8.getCurrentOffset(), (Long) 0L);
+        Assert.assertNull(search8.getNextOffset());
+        Assert.assertEquals(search8.getMaxNbRecords(), (Long) 2L);
+        Assert.assertEquals(search8.getTotalNbRecords(), (Long) 2L);
+        Assert.assertEquals(Iterables.toUnmodifiableList(search8).size(), 2);
+
+        final Pagination<Account> search9 = accountUserApi.searchAccounts("_q=1&email=john@acme.com&currency=USD", 0L, 5L, callContext);
+        Assert.assertEquals(search9.getCurrentOffset(), (Long) 0L);
+        Assert.assertNull(search9.getNextOffset());
+        Assert.assertEquals(search9.getMaxNbRecords(), (Long) 2L);
+        Assert.assertEquals(search9.getTotalNbRecords(), (Long) 0L);
+        Assert.assertEquals(Iterables.toUnmodifiableList(search9).size(), 0);
+
+        final Pagination<Account> search10 = accountUserApi.searchAccounts("_q=1&billing_cycle_day_local[gt]=31&currency=MXN", 0L, 5L, callContext);
+        Assert.assertEquals(search10.getCurrentOffset(), (Long) 0L);
+        Assert.assertNull(search10.getNextOffset());
+        Assert.assertEquals(search10.getMaxNbRecords(), (Long) 2L);
+        Assert.assertEquals(search10.getTotalNbRecords(), (Long) 0L);
+        Assert.assertEquals(Iterables.toUnmodifiableList(search10).size(), 0);
+
+        final Pagination<Account> search11 = accountUserApi.searchAccounts("_q=1&billing_cycle_day_local[gte]=31&currency=MXN", 0L, 5L, callContext);
+        Assert.assertEquals(search11.getCurrentOffset(), (Long) 0L);
+        Assert.assertNull(search11.getNextOffset());
+        Assert.assertEquals(search11.getMaxNbRecords(), (Long) 2L);
+        Assert.assertEquals(search11.getTotalNbRecords(), (Long) 2L);
+        Assert.assertEquals(Iterables.toUnmodifiableList(search11).size(), 2);
+
+        final Pagination<Account> search12 = accountUserApi.searchAccounts("_q=1&billing_cycle_day_local[gte]=31&currency=USD", 0L, 5L, callContext);
+        Assert.assertEquals(search12.getCurrentOffset(), (Long) 0L);
+        Assert.assertNull(search12.getNextOffset());
+        Assert.assertEquals(search12.getMaxNbRecords(), (Long) 2L);
+        Assert.assertEquals(search12.getTotalNbRecords(), (Long) 0L);
+        Assert.assertEquals(Iterables.toUnmodifiableList(search12).size(), 0);
+    }
+
+    @Test(groups = "slow", description = "Test Account Pagination")
+    public void testRetrieveAccounts() throws Exception {
+        final MutableAccountData mutableAccountData1 = createAccountData();
+        mutableAccountData1.setEmail("john@acme.com");
+        mutableAccountData1.setCompanyName("Acme, Inc.");
+        final AccountModelDao account1ModelDao = new AccountModelDao(UUID.randomUUID(), mutableAccountData1);
+        final AccountData accountData1 = new DefaultAccount(account1ModelDao);
+        accountUserApi.createAccount(accountData1, callContext);
+
+        final MutableAccountData mutableAccountData2 = createAccountData();
+        mutableAccountData2.setEmail("bob@gmail.com");
+        mutableAccountData2.setCompanyName("Acme, Inc.");
+        final AccountModelDao account2ModelDao = new AccountModelDao(UUID.randomUUID(), mutableAccountData2);
+        final AccountData accountData2 = new DefaultAccount(account2ModelDao);
+        accountUserApi.createAccount(accountData2, callContext);
+
+        final Long count = 2L;
+        final Long limit = 10L;
+
+        Pagination<Account> accounts = accountUserApi.getAccounts(0L, limit, callContext);
+        assertEquals(accounts.getTotalNbRecords(), count);
+        Assert.assertEquals(accounts.getMaxNbRecords(), count);
+        Assert.assertEquals(accounts.getCurrentOffset(), (Long) 0L);
     }
 
     @Test(groups = "slow", description = "Test Account creation generates an event")
@@ -119,12 +192,8 @@ public class TestDefaultAccountUserApi extends AccountTestSuiteWithEmbeddedDB {
         final AccountData defaultAccount = new DefaultAccount(accountModelDao);
         final Account account = createAccount(defaultAccount);
 
-        await().atMost(10, SECONDS).until(new Callable<Boolean>() {
-            @Override
-            public Boolean call() throws Exception {
-                return eventHandler.getAccountCreationInternalEvents().size() == 1;
-            }
-        });
+        await().atMost(10, SECONDS).until(() -> eventHandler.getAccountCreationInternalEvents().size() == 1);
+
         final AccountCreationInternalEvent accountCreationInternalEvent = eventHandler.getAccountCreationInternalEvents().get(0);
         Assert.assertEquals(accountCreationInternalEvent.getId(), account.getId());
         // account_record_id is most likely 1, although, depending on the DB, we cannot be sure
@@ -314,7 +383,7 @@ public class TestDefaultAccountUserApi extends AccountTestSuiteWithEmbeddedDB {
 
     private static final class AccountEventHandler {
 
-        private final List<AccountCreationInternalEvent> accountCreationInternalEvents = new LinkedList<AccountCreationInternalEvent>();
+        private final List<AccountCreationInternalEvent> accountCreationInternalEvents = new LinkedList<>();
 
         @Subscribe
         public void handleAccountCreationInternalEvent(final AccountCreationInternalEvent creationInternalEvent) {

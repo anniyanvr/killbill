@@ -18,6 +18,7 @@
 package org.killbill.billing.jaxrs.json;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 import javax.annotation.Nullable;
@@ -29,9 +30,9 @@ import org.killbill.billing.util.audit.AccountAuditLogs;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import io.swagger.annotations.ApiModel;
+import io.swagger.v3.oas.annotations.media.Schema;
 
-@ApiModel(value="BlockingState", parent = JsonBase.class)
+@Schema(name = "BlockingState")
 public class BlockingStateJson extends JsonBase {
 
     private final UUID blockedId;
@@ -123,13 +124,13 @@ public class BlockingStateJson extends JsonBase {
 
         final BlockingStateJson that = (BlockingStateJson) o;
 
-        if (isBlockChange != that.isBlockChange) {
+        if (!Objects.equals(isBlockChange, that.isBlockChange)) {
             return false;
         }
-        if (isBlockEntitlement != that.isBlockEntitlement) {
+        if (!Objects.equals(isBlockEntitlement, that.isBlockEntitlement)) {
             return false;
         }
-        if (isBlockBilling != that.isBlockBilling) {
+        if (!Objects.equals(isBlockBilling, that.isBlockBilling)) {
             return false;
         }
         if (blockedId != null ? !blockedId.equals(that.blockedId) : that.blockedId != null) {

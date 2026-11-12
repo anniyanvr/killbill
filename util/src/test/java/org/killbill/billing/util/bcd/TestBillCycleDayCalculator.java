@@ -22,11 +22,13 @@ import java.util.UUID;
 
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
+import org.joda.time.LocalDate;
 import org.killbill.billing.GuicyKillbillTestSuiteNoDB;
 import org.killbill.billing.account.api.Account;
 import org.killbill.billing.account.api.AccountApiException;
 import org.killbill.billing.account.api.ImmutableAccountData;
 import org.killbill.billing.catalog.api.BillingAlignment;
+import org.killbill.billing.catalog.api.BillingPeriod;
 import org.killbill.billing.catalog.api.CatalogApiException;
 import org.killbill.billing.catalog.api.Plan;
 import org.killbill.billing.mock.MockAccountBuilder;
@@ -38,6 +40,7 @@ import org.testng.Assert;
 import org.testng.annotations.Test;
 
 public class TestBillCycleDayCalculator extends UtilTestSuiteNoDB {
+
 
     @Test(groups = "fast")
     public void testCalculateBCDForAOWithBPCancelledBundleAligned() throws Exception {
@@ -127,6 +130,105 @@ public class TestBillCycleDayCalculator extends UtilTestSuiteNoDB {
         createAccountAndRefreshTimeAwareContext(accountTimeZone, startDate);
 
         verifyBCDCalculation(accountTimeZone, startDate, bcdLocal);
+    }
+
+    @Test(groups = "fast")
+    public void testAlignProposedBillCycleDate1() {
+        final DateTime proposedDate = new DateTime(2022, 7, 19, 17, 28, 0, DateTimeZone.UTC);
+        final BillingPeriod billingPeriod = BillingPeriod.MONTHLY;
+        // BCD > proposed day of the month
+        final int bcd = 23;
+
+        final LocalDate result = BillCycleDayCalculator.alignProposedBillCycleDate(proposedDate, bcd, billingPeriod, internalCallContext);
+        Assert.assertEquals(result, new LocalDate(2022, 7, 23));
+    }
+
+    @Test(groups = "fast")
+    public void testAlignProposedBillCycleDate2() {
+        final DateTime proposedDate = new DateTime(2022, 7, 19, 17, 28, 0, DateTimeZone.UTC);
+        final BillingPeriod billingPeriod = BillingPeriod.MONTHLY;
+        // BCD < proposed day of the month
+        final int bcd = 17;
+
+        final LocalDate result = BillCycleDayCalculator.alignProposedBillCycleDate(proposedDate, bcd, billingPeriod, internalCallContext);
+        Assert.assertEquals(result, new LocalDate(2022, 7, 17));
+    }
+
+    @Test(groups = "fast")
+    public void testAlignProposedBillCycleDate3() {
+        final DateTime proposedDate = new DateTime(2022, 2, 19, 17, 28, 0, DateTimeZone.UTC);
+        final BillingPeriod billingPeriod = BillingPeriod.MONTHLY;
+        // BCD > last day of the month
+        final int bcd = 31;
+
+        final LocalDate result = BillCycleDayCalculator.alignProposedBillCycleDate(proposedDate, bcd, billingPeriod, internalCallContext);
+        Assert.assertEquals(result, new LocalDate(2022, 2, 28));
+    }
+
+    @Test(groups = "fast")
+    public void testAlignToNextBillCycleDate1() {
+        final DateTime proposedDate = new DateTime(2022, 7, 19, 17, 28, 0, DateTimeZone.UTC);
+        final BillingPeriod billingPeriod = BillingPeriod.MONTHLY;
+        // BCD > proposed day of the month
+        final int bcd = 23;
+
+        final LocalDate result = BillCycleDayCalculator.alignToNextBillCycleDate(null, proposedDate, bcd, billingPeriod, internalCallContext);
+        Assert.assertEquals(result, new LocalDate(2022, 7, 23));
+    }
+
+    @Test(groups = "fast")
+    public void testAlignToNextBillCycleDate2() {
+        final DateTime proposedDate = new DateTime(2022, 7, 19, 17, 28, 0, DateTimeZone.UTC);
+        final BillingPeriod billingPeriod = BillingPeriod.MONTHLY;
+        // BCD < proposed day of the month
+        final int bcd = 17;
+
+        final LocalDate result = BillCycleDayCalculator.alignToNextBillCycleDate(null, proposedDate, bcd, billingPeriod, internalCallContext);
+        Assert.assertEquals(result, new LocalDate(2022, 8, 17));
+    }
+
+    @Test(groups = "fast")
+    public void testAlignToNextBillCycleDate3() {
+        final DateTime proposedDate = new DateTime(2022, 2, 19, 17, 28, 0, DateTimeZone.UTC);
+        final BillingPeriod billingPeriod = BillingPeriod.MONTHLY;
+        // BCD > last day of the month
+        final int bcd = 31;
+
+        final LocalDate result = BillCycleDayCalculator.alignToNextBillCycleDate(null, proposedDate, bcd, billingPeriod, internalCallContext);
+        Assert.assertEquals(result, new LocalDate(2022, 2, 28));
+    }
+
+    @Test(groups = "fast")
+    public void testAlignProposedNextBillCycleDateWeeklyBilling1() {
+        final DateTime proposedDate = new DateTime(2022, 2, 19, 17, 28, 0, DateTimeZone.UTC);
+        final DateTime originalDate = new DateTime(2022, 2, 2, 17, 28, 0, DateTimeZone.UTC);
+        final BillingPeriod billingPeriod = BillingPeriod.WEEKLY;
+        final int bcd = 31;
+
+        final LocalDate result = BillCycleDayCalculator.alignToNextBillCycleDate(originalDate, proposedDate, bcd, billingPeriod, internalCallContext);
+        Assert.assertEquals(result, new LocalDate(2022, 2, 23));
+    }
+
+    @Test(groups = "fast")
+    public void testAlignProposedNextBillCycleDateWeeklyBilling2() {
+        final DateTime proposedDate = new DateTime(2022, 2, 25, 17, 28, 0, DateTimeZone.UTC);
+        final DateTime originalDate = new DateTime(2022, 2, 18, 17, 28, 0, DateTimeZone.UTC);
+        final BillingPeriod billingPeriod = BillingPeriod.WEEKLY;
+        final int bcd = 31;
+
+        final LocalDate result = BillCycleDayCalculator.alignToNextBillCycleDate(originalDate, proposedDate, bcd, billingPeriod, internalCallContext);
+        Assert.assertEquals(result, new LocalDate(2022, 2, 25));
+    }
+
+    @Test(groups = "fast")
+    public void testAlignProposedNextBillCycleDateBiWeeklyBilling1() {
+        final DateTime proposedDate = new DateTime(2022, 2, 25, 17, 28, 0, DateTimeZone.UTC);
+        final DateTime originalDate = new DateTime(2022, 2, 2, 17, 28, 0, DateTimeZone.UTC);
+        final BillingPeriod billingPeriod = BillingPeriod.BIWEEKLY;
+        final int bcd = 31;
+
+        final LocalDate result = BillCycleDayCalculator.alignToNextBillCycleDate(originalDate, proposedDate, bcd, billingPeriod, internalCallContext);
+        Assert.assertEquals(result, new LocalDate(2022, 3, 2));
     }
 
     private void verifyBCDCalculation(final DateTimeZone accountTimeZone, final DateTime startDateUTC, final int bcdLocal) throws AccountApiException, CatalogApiException {

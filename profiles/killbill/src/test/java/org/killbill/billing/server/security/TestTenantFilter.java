@@ -1,7 +1,8 @@
 /*
- * Copyright 2010-2013 Ning, Inc.
- * Copyright 2014-2018 Groupon, Inc
- * Copyright 2014-2018 The Billing Project, LLC
+ * Copyright 2010-2014 Ning, Inc.
+ * Copyright 2014-2020 Groupon, Inc
+ * Copyright 2020-2022 Equinix, Inc
+ * Copyright 2014-2022 The Billing Project, LLC
  *
  * The Billing Project licenses this file to you under the Apache License, version 2.0
  * (the "License"); you may not use this file except in compliance with the
@@ -18,7 +19,7 @@
 
 package org.killbill.billing.server.security;
 
-import javax.ws.rs.core.Response.Status;
+import jakarta.ws.rs.core.Response.Status;
 
 import org.killbill.billing.client.KillBillClientException;
 import org.killbill.billing.client.model.gen.Account;
@@ -48,7 +49,7 @@ public class TestTenantFilter extends TestJaxrsBase {
             accountApi.createAccount(getAccount(), requestOptions);
             Assert.fail();
         } catch (final KillBillClientException e) {
-            Assert.assertEquals(e.getResponse().getStatusCode(), Status.UNAUTHORIZED.getStatusCode());
+            Assert.assertEquals(e.getResponse().statusCode(), Status.UNAUTHORIZED.getStatusCode());
         }
         callbackServlet.assertListenerStatus();
 

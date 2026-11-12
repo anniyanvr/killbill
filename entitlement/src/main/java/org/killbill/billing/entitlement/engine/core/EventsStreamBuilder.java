@@ -20,17 +20,22 @@
 package org.killbill.billing.entitlement.engine.core;
 
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import javax.annotation.Nullable;
-import javax.inject.Inject;
-import javax.inject.Named;
-import javax.inject.Singleton;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
+import jakarta.inject.Singleton;
 
 import org.killbill.billing.ObjectType;
 import org.killbill.billing.account.api.AccountApiException;
@@ -65,17 +70,12 @@ import org.killbill.billing.util.bcd.BillCycleDayCalculator;
 import org.killbill.billing.util.cache.CacheControllerDispatcher;
 import org.killbill.billing.util.callcontext.InternalCallContextFactory;
 import org.killbill.billing.util.callcontext.TenantContext;
+import org.killbill.commons.utils.collect.Iterables;
 import org.killbill.billing.util.dao.NonEntityDao;
 import org.killbill.billing.util.optimizer.BusOptimizer;
 import org.killbill.clock.Clock;
 import org.killbill.notificationq.api.NotificationQueueService;
 import org.skife.jdbi.v2.IDBI;
-
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Predicate;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterables;
 
 import static org.killbill.billing.util.glue.IDBISetup.MAIN_RO_IDBI_NAMED;
 
@@ -133,7 +133,7 @@ public class EventsStreamBuilder {
 
     public EventsStream buildForEntitlement(final UUID entitlementId, final TenantContext tenantContext) throws EntitlementApiException {
         final InternalTenantContext internalTenantContext = internalCallContextFactory.createInternalTenantContext(entitlementId, ObjectType.SUBSCRIPTION, tenantContext);
-        return buildForEntitlement(entitlementId, internalTenantContext);
+        return buildForEntitlement(entitlementId, false, internalTenantContext);
     }
 
     public AccountEventsStreams buildForAccount(final InternalTenantContext internalTenantContext) throws EntitlementApiException {
@@ -141,7 +141,7 @@ public class EventsStreamBuilder {
         final Map<UUID, List<SubscriptionBase>> subscriptions;
         try {
             final VersionedCatalog catalog = getCatalog(internalTenantContext);
-            subscriptions = subscriptionInternalApi.getSubscriptionsForAccount(catalog, internalTenantContext);
+            subscriptions = subscriptionInternalApi.getSubscriptionsForAccount(catalog, null, internalTenantContext);
             return buildForAccount(subscriptions, catalog, internalTenantContext);
         } catch (final SubscriptionBaseApiException e) {
             throw new EntitlementApiException(e);
@@ -177,9 +177,9 @@ public class EventsStreamBuilder {
         final List<BlockingState> blockingStatesForAccount = defaultBlockingStateDao.getBlockingAllForAccountRecordId(catalog, internalTenantContext);
 
         // Optimization: build lookup tables for blocking states states
-        final Collection<BlockingState> accountBlockingStates = new LinkedList<BlockingState>();
-        final Map<UUID, List<BlockingState>> blockingStatesPerSubscription = new HashMap<UUID, List<BlockingState>>();
-        final Map<UUID, List<BlockingState>> blockingStatesPerBundle = new HashMap<UUID, List<BlockingState>>();
+        final Collection<BlockingState> accountBlockingStates = new LinkedList<>();
+        final Map<UUID, List<BlockingState>> blockingStatesPerSubscription = new HashMap<>();
+        final Map<UUID, List<BlockingState>> blockingStatesPerBundle = new HashMap<>();
         for (final BlockingState blockingState : blockingStatesForAccount) {
             if (BlockingStateType.SUBSCRIPTION.equals(blockingState.getType())) {
                 if (blockingStatesPerSubscription.get(blockingState.getBlockedId()) == null) {
@@ -198,14 +198,15 @@ public class EventsStreamBuilder {
         }
 
         // Build the EventsStream objects
-        final Map<UUID, Integer> bcdCache = new HashMap<UUID, Integer>();
-        final Map<UUID, Collection<EventsStream>> eventsStreamPerBundle = new HashMap<UUID, Collection<EventsStream>>();
-        final Map<UUID, Collection<SubscriptionBase>> subscriptionsPerBundle = new HashMap<UUID, Collection<SubscriptionBase>>();
-        for (final UUID bundleId : subscriptions.keySet()) {
+        final Map<UUID, Integer> bcdCache = new HashMap<>();
+        final Map<UUID, Collection<EventsStream>> eventsStreamPerBundle = new HashMap<>();
+        final Map<UUID, Collection<SubscriptionBase>> subscriptionsPerBundle = new HashMap<>();
+        for (final Entry<UUID, List<SubscriptionBase>> entry : subscriptions.entrySet()) {
+            final UUID bundleId = entry.getKey();
             final SubscriptionBaseBundle bundle = bundlesPerId.get(bundleId);
-            final List<SubscriptionBase> allSubscriptionsForBundle = subscriptions.get(bundleId);
+            final List<SubscriptionBase> allSubscriptionsForBundle = entry.getValue();
             final SubscriptionBase baseSubscription = findBaseSubscription(allSubscriptionsForBundle);
-            final List<BlockingState> bundleBlockingStates = MoreObjects.firstNonNull(blockingStatesPerBundle.get(bundleId), ImmutableList.<BlockingState>of());
+            final List<BlockingState> bundleBlockingStates = Objects.requireNonNullElse(blockingStatesPerBundle.get(bundleId), Collections.emptyList());
 
             if (eventsStreamPerBundle.get(bundleId) == null) {
                 eventsStreamPerBundle.put(bundleId, new LinkedList<EventsStream>());
@@ -215,7 +216,7 @@ public class EventsStreamBuilder {
             }
 
             for (final SubscriptionBase subscription : allSubscriptionsForBundle) {
-                final List<BlockingState> subscriptionBlockingStatesOnDisk = MoreObjects.firstNonNull(blockingStatesPerSubscription.get(subscription.getId()), ImmutableList.<BlockingState>of());
+                final List<BlockingState> subscriptionBlockingStatesOnDisk = Objects.requireNonNullElse(blockingStatesPerSubscription.get(subscription.getId()), Collections.emptyList());
 
                 // We cannot always use blockingStatesForAccount here: we need subscriptionBlockingStates to contain the events not on disk when building an EventsStream
                 // for an add-on - which means going through the magic of ProxyBlockingStateDao, which will recursively
@@ -234,6 +235,7 @@ public class EventsStreamBuilder {
                                                                                      allSubscriptionsForBundle,
                                                                                      accountBCD,
                                                                                      catalog,
+                                                                                     false, //includeDeletedEvents set to false since deleted events are not needed while building entitlements for account.
                                                                                      internalTenantContext);
 
                 }
@@ -253,6 +255,7 @@ public class EventsStreamBuilder {
                                                                      accountBCD,
                                                                      bcdCache,
                                                                      catalog,
+                                                                     false, //includeDeletedEvents - set to false since it does not matter while building entitlements for account.
                                                                      internalTenantContext);
                 eventsStreamPerBundle.get(bundleId).add(eventStream);
             }
@@ -273,15 +276,15 @@ public class EventsStreamBuilder {
 
         final List<EventsStream> eventsStreams = new LinkedList<EventsStream>();
         for (final SubscriptionBase subscription : subscriptionsForBundle) {
-            eventsStreams.add(buildForEntitlement(bundle, subscription, subscriptionsForBundle, internalTenantContext));
+            eventsStreams.add(buildForEntitlement(bundle, subscription, subscriptionsForBundle, false, internalTenantContext)); //includeDeletedEvents is set to false since it does not matter while building entitlements for bundle.
         }
         return eventsStreams;
     }
 
-    public EventsStream buildForEntitlement(final UUID entitlementId, final InternalTenantContext internalTenantContext) throws EntitlementApiException {
+    public EventsStream buildForEntitlement(final UUID entitlementId, final boolean includeDeletedEvents, final InternalTenantContext internalTenantContext) throws EntitlementApiException {
         try {
-            final SubscriptionBase subscription = subscriptionInternalApi.getSubscriptionFromId(entitlementId, internalTenantContext);
-            return buildForEntitlement(subscription, internalTenantContext);
+            final SubscriptionBase subscription = subscriptionInternalApi.getSubscriptionFromId(entitlementId, includeDeletedEvents, internalTenantContext);
+            return buildForEntitlement(subscription, includeDeletedEvents, internalTenantContext);
         } catch (final SubscriptionBaseApiException e) {
             throw new EntitlementApiException(e);
         }
@@ -290,6 +293,7 @@ public class EventsStreamBuilder {
     public EventsStream buildForEntitlement(final SubscriptionBaseBundle bundle,
                                             final SubscriptionBase subscription,
                                             final Collection<SubscriptionBase> allSubscriptionsForBundle,
+                                            final boolean includeDeletedEvents,
                                             final InternalTenantContext internalTenantContext) throws EntitlementApiException {
         final int accountBCD;
         try {
@@ -298,13 +302,14 @@ public class EventsStreamBuilder {
             throw new EntitlementApiException(e);
         }
 
-        return buildForEntitlement(bundle, subscription, allSubscriptionsForBundle, accountBCD, internalTenantContext);
+        return buildForEntitlement(bundle, subscription, allSubscriptionsForBundle, accountBCD, includeDeletedEvents, internalTenantContext);
     }
 
     public EventsStream buildForEntitlement(final SubscriptionBaseBundle bundle,
                                             final SubscriptionBase subscription,
                                             final Collection<SubscriptionBase> allSubscriptionsForBundle,
                                             final int accountBCD,
+                                            final boolean includeDeletedEvents,
                                             final InternalTenantContext internalTenantContext) throws EntitlementApiException {
         final SubscriptionBase baseSubscription = findBaseSubscription(allSubscriptionsForBundle);
         final ImmutableAccountData account;
@@ -317,13 +322,14 @@ public class EventsStreamBuilder {
         final VersionedCatalog catalog = getCatalog(internalTenantContext);
 
         // Retrieve the blocking states
-        final ImmutableSet<UUID> blockingStateIds = baseSubscription != null  ?
-                                                    ImmutableSet.of(account.getId(), bundle.getId(), baseSubscription.getId(), subscription.getId()) :
-                                                    ImmutableSet.of(account.getId(), bundle.getId(), subscription.getId());
-        final List<BlockingState> blockingStatesForAccount = defaultBlockingStateDao.getByBlockingIds(blockingStateIds, internalTenantContext);
+        final Set<UUID> blockingStateIds = baseSubscription != null ?
+                                           // List.of needed because Set.of will throw IllegalArgumentException (duplicate element) if the same object added
+                                           Set.copyOf(List.of(account.getId(), bundle.getId(), baseSubscription.getId(), subscription.getId())) :
+                                           Set.copyOf(List.of(account.getId(), bundle.getId(), subscription.getId()));
+        final List<BlockingState> blockingStatesForAccount = defaultBlockingStateDao.getByBlockingIds(blockingStateIds, includeDeletedEvents, internalTenantContext);
 
-        final Map<UUID, Integer> bcdCache = new HashMap<UUID, Integer>();
-        return buildForEntitlement(blockingStatesForAccount, account, bundle, baseSubscription, subscription, allSubscriptionsForBundle, accountBCD, bcdCache, catalog, internalTenantContext);
+        final Map<UUID, Integer> bcdCache = new HashMap<>();
+        return buildForEntitlement(blockingStatesForAccount, account, bundle, baseSubscription, subscription, allSubscriptionsForBundle, accountBCD, bcdCache, catalog, includeDeletedEvents, internalTenantContext);
     }
 
     // Special signature for OptimizedProxyBlockingStateDao to save some DAO calls
@@ -334,9 +340,10 @@ public class EventsStreamBuilder {
                                             final Collection<SubscriptionBase> allSubscriptionsForBundle,
                                             final int accountBCD,
                                             final VersionedCatalog catalog,
+                                            final boolean includeDeletedEvents,
                                             final InternalTenantContext internalTenantContext) throws EntitlementApiException {
-        final Map<UUID, Integer> bcdCache = new HashMap<UUID, Integer>();
-        return buildForEntitlement(blockingStatesForAccount, account, bundle, baseSubscription, baseSubscription, allSubscriptionsForBundle, accountBCD, bcdCache, catalog, internalTenantContext);
+        final Map<UUID, Integer> bcdCache = new HashMap<>();
+        return buildForEntitlement(blockingStatesForAccount, account, bundle, baseSubscription, baseSubscription, allSubscriptionsForBundle, accountBCD, bcdCache, catalog, includeDeletedEvents, internalTenantContext);
     }
 
     private EventsStream buildForEntitlement(final Collection<BlockingState> blockingStatesForAccount,
@@ -348,12 +355,16 @@ public class EventsStreamBuilder {
                                              final int accountBCD,
                                              final Map<UUID, Integer> bcdCache,
                                              final VersionedCatalog catalog,
+                                             final boolean includeDeletedEvents,
                                              final InternalTenantContext internalTenantContext) throws EntitlementApiException {
         // Optimization: build lookup tables for blocking states states
-        final Collection<BlockingState> accountBlockingStates = new LinkedList<BlockingState>();
-        final Map<UUID, List<BlockingState>> blockingStatesPerSubscription = new HashMap<UUID, List<BlockingState>>();
-        final Map<UUID, List<BlockingState>> blockingStatesPerBundle = new HashMap<UUID, List<BlockingState>>();
+        final Collection<BlockingState> accountBlockingStates = new LinkedList<>();
+        final Map<UUID, List<BlockingState>> blockingStatesPerSubscription = new HashMap<>();
+        final Map<UUID, List<BlockingState>> blockingStatesPerBundle = new HashMap<>();
         for (final BlockingState blockingState : blockingStatesForAccount) {
+            if (!includeDeletedEvents && !blockingState.isActive()) {
+                continue;
+            }
             if (BlockingStateType.SUBSCRIPTION.equals(blockingState.getType())) {
                 if (blockingStatesPerSubscription.get(blockingState.getBlockedId()) == null) {
                     blockingStatesPerSubscription.put(blockingState.getBlockedId(), new LinkedList<BlockingState>());
@@ -370,8 +381,8 @@ public class EventsStreamBuilder {
             }
         }
 
-        final List<BlockingState> bundleBlockingStates = MoreObjects.firstNonNull(blockingStatesPerBundle.get(subscription.getBundleId()), ImmutableList.<BlockingState>of());
-        final List<BlockingState> subscriptionBlockingStatesOnDisk = MoreObjects.firstNonNull(blockingStatesPerSubscription.get(subscription.getId()), ImmutableList.<BlockingState>of());
+        final List<BlockingState> bundleBlockingStates = Objects.requireNonNullElse(blockingStatesPerBundle.get(subscription.getBundleId()), Collections.emptyList());
+        final List<BlockingState> subscriptionBlockingStatesOnDisk = Objects.requireNonNullElse(blockingStatesPerSubscription.get(subscription.getId()), Collections.emptyList());
 
         // We cannot always use blockingStatesForAccount here: we need subscriptionBlockingStates to contain the events not on disk when building an EventsStream
         // for an add-on - which means going through the magic of ProxyBlockingStateDao, which will recursively
@@ -383,7 +394,7 @@ public class EventsStreamBuilder {
             // (called by blockingStateDao.getBlockingHistory below)
             subscriptionBlockingStates = subscriptionBlockingStatesOnDisk;
         } else {
-            subscriptionBlockingStates = blockingStateDao.getBlockingHistory(ImmutableList.<BlockingState>copyOf(subscriptionBlockingStatesOnDisk),
+            subscriptionBlockingStates = blockingStateDao.getBlockingHistory(List.copyOf(subscriptionBlockingStatesOnDisk),
                                                                              blockingStatesForAccount,
                                                                              account,
                                                                              bundle,
@@ -392,17 +403,38 @@ public class EventsStreamBuilder {
                                                                              allSubscriptionsForBundle,
                                                                              accountBCD,
                                                                              catalog,
+                                                                             includeDeletedEvents,
                                                                              internalTenantContext);
         }
 
         // Merge the BlockingStates
-        final Collection<BlockingState> blockingStateSet = new LinkedHashSet<BlockingState>(accountBlockingStates);
+        final Collection<BlockingState> blockingStateSet = new LinkedHashSet<>(accountBlockingStates);
         blockingStateSet.addAll(bundleBlockingStates);
         blockingStateSet.addAll(subscriptionBlockingStates);
         final List<BlockingState> blockingStates = ProxyBlockingStateDao.sortedCopy(blockingStateSet);
 
-        return buildForEntitlement(account, bundle, baseSubscription, subscription, allSubscriptionsForBundle, blockingStates, accountBCD, bcdCache, catalog, internalTenantContext);
+        if(includeDeletedEvents) {
+            return buildForEntitlement(account, bundle, baseSubscription, subscription, allSubscriptionsForBundle, blockingStates.stream().filter(state -> state.isActive()).collect(Collectors.toList()), blockingStates, accountBCD, bcdCache, catalog, internalTenantContext);
+        } else {
+            return buildForEntitlement(account, bundle, baseSubscription, subscription, allSubscriptionsForBundle, blockingStates, Collections.emptyList(), accountBCD, bcdCache, catalog, internalTenantContext);
+        }
     }
+    
+    private EventsStream buildForEntitlement(final ImmutableAccountData account,
+            final SubscriptionBaseBundle bundle,
+            @Nullable final SubscriptionBase baseSubscription,
+            final SubscriptionBase subscription,
+            final Collection<SubscriptionBase> allSubscriptionsForBundle,
+            final Collection<BlockingState> blockingStates,
+            final int accountBCD,
+            final Map<UUID, Integer> bcdCache,
+            final VersionedCatalog catalog,
+            final boolean includeDeletedEvents,
+            final InternalTenantContext internalTenantContext) throws EntitlementApiException {
+    	
+    	return buildForEntitlement(account, bundle, baseSubscription, subscription, allSubscriptionsForBundle, blockingStates, Collections.emptyList(), accountBCD, bcdCache, catalog, internalTenantContext);
+    	
+    }   
 
     private EventsStream buildForEntitlement(final ImmutableAccountData account,
                                              final SubscriptionBaseBundle bundle,
@@ -410,6 +442,7 @@ public class EventsStreamBuilder {
                                              final SubscriptionBase subscription,
                                              final Collection<SubscriptionBase> allSubscriptionsForBundle,
                                              final Collection<BlockingState> blockingStates,
+                                             final Collection<BlockingState> blockingStatesWithDeletedEvents,
                                              final int accountBCD,
                                              final Map<UUID, Integer> bcdCache,
                                              final VersionedCatalog catalog,
@@ -425,6 +458,7 @@ public class EventsStreamBuilder {
             return new DefaultEventsStream(account,
                                            bundle,
                                            blockingStates,
+                                           blockingStatesWithDeletedEvents,
                                            checker,
                                            baseSubscription,
                                            subscription,
@@ -437,7 +471,7 @@ public class EventsStreamBuilder {
         }
     }
 
-    private EventsStream buildForEntitlement(final SubscriptionBase subscription, final InternalTenantContext internalTenantContext) throws EntitlementApiException {
+    private EventsStream buildForEntitlement(final SubscriptionBase subscription, final boolean includeDeletedEvents, final InternalTenantContext internalTenantContext) throws EntitlementApiException {
         final SubscriptionBaseBundle bundle;
         final List<SubscriptionBase> subscriptionsForBundle;
         try {
@@ -447,7 +481,7 @@ public class EventsStreamBuilder {
             throw new EntitlementApiException(e);
         }
 
-        return buildForEntitlement(bundle, subscription, subscriptionsForBundle, internalTenantContext);
+        return buildForEntitlement(bundle, subscription, subscriptionsForBundle, includeDeletedEvents, internalTenantContext);
     }
 
     private PlanPhaseSpecifier createPlanPhaseSpecifier(final SubscriptionBase subscription) {
@@ -475,16 +509,14 @@ public class EventsStreamBuilder {
     }
 
     private SubscriptionBase findBaseSubscription(final Iterable<SubscriptionBase> subscriptions) {
-        return Iterables.<SubscriptionBase>tryFind(subscriptions,
-                                                   new Predicate<SubscriptionBase>() {
-                                                       @Override
-                                                       public boolean apply(final SubscriptionBase input) {
-                                                           final List<SubscriptionBaseTransition> allTransitions = input.getAllTransitions();
-                                                           return !allTransitions.isEmpty() &&
-                                                                  allTransitions.get(0).getNextPlan() != null &&
-                                                                  allTransitions.get(0).getNextPlan().getProduct() != null &&
-                                                                  ProductCategory.BASE.equals(allTransitions.get(0).getNextPlan().getProduct().getCategory());
-                                                       }
-                                                   }).orNull(); // null for standalone subscriptions
+        return Iterables.toStream(subscriptions)
+                .filter(input -> {
+                    final List<SubscriptionBaseTransition> allTransitions = input.getAllTransitions(false);
+                    return !allTransitions.isEmpty() &&
+                           allTransitions.get(0).getNextPlan() != null &&
+                           allTransitions.get(0).getNextPlan().getProduct() != null &&
+                           ProductCategory.BASE.equals(allTransitions.get(0).getNextPlan().getProduct().getCategory());
+                })
+                .findFirst().orElse(null); // null for standalone subscriptions
     }
 }

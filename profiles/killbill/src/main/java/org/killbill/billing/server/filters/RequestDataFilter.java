@@ -18,20 +18,25 @@
 package org.killbill.billing.server.filters;
 
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
-import javax.inject.Singleton;
-import javax.ws.rs.container.ContainerRequestContext;
-import javax.ws.rs.container.ContainerRequestFilter;
-import javax.ws.rs.container.ContainerResponseContext;
-import javax.ws.rs.container.ContainerResponseFilter;
+import jakarta.inject.Singleton;
+import jakarta.ws.rs.container.ContainerRequestContext;
+import jakarta.ws.rs.container.ContainerRequestFilter;
+import jakarta.ws.rs.container.ContainerResponseContext;
+import jakarta.ws.rs.container.ContainerResponseFilter;
 
 import org.glassfish.jersey.server.ContainerException;
 import org.glassfish.jersey.server.ContainerRequest;
 import org.glassfish.jersey.server.ContainerResponse;
 import org.glassfish.jersey.server.spi.ContainerResponseWriter;
+import org.killbill.billing.jaxrs.resources.JaxrsResource;
 import org.killbill.billing.util.UUIDs;
+import org.killbill.commons.utils.annotation.VisibleForTesting;
 import org.killbill.commons.request.Request;
 import org.killbill.commons.request.RequestData;
 
@@ -42,11 +47,37 @@ public class RequestDataFilter implements ContainerRequestFilter, ContainerRespo
 
     private static final String LEGACY_REQUEST_ID_HEADER = "X-Killbill-Request-Id-Req";
 
+    @VisibleForTesting
+    static final String KILL_BILL_ENCODING_HEADER = "X-Killbill-Encoding";
+
     @Override
     public void filter(final ContainerRequestContext requestContext) {
         final List<String> requestIdHeaderRequests = getRequestId(requestContext);
         final String requestId = (requestIdHeaderRequests == null || requestIdHeaderRequests.isEmpty()) ? UUIDs.randomUUID().toString() : requestIdHeaderRequests.get(0);
         Request.setPerThreadRequestData(new RequestData(requestId));
+
+        final List<String> kbEncodingHeaders = requestContext.getHeaders().get(KILL_BILL_ENCODING_HEADER);
+        final String kbEncodingHeader = (kbEncodingHeaders == null || kbEncodingHeaders.isEmpty()) ? null : kbEncodingHeaders.get(0);
+        if ("base64".equalsIgnoreCase(kbEncodingHeader)) {
+            requestContext.getHeaders()
+                          .replaceAll((String k, List<String> v) -> {
+                              if (k.equalsIgnoreCase(JaxrsResource.HDR_COMMENT) ||
+                                  k.equalsIgnoreCase(JaxrsResource.HDR_REASON) ||
+                                  k.equalsIgnoreCase(JaxrsResource.HDR_CREATED_BY)) {
+                                  return v.stream()
+                                          .map(input -> {
+                                              try {
+                                                  return new String(Base64.getDecoder().decode(input), StandardCharsets.UTF_8);
+                                              } catch (final IllegalArgumentException e) {
+                                                  // Not Base64 after all? Be lenient...
+                                                  return input;
+                                              }
+                                          }).collect(Collectors.toUnmodifiableList());
+                              } else {
+                                  return v;
+                              }
+                          });
+        }
     }
 
     @Override

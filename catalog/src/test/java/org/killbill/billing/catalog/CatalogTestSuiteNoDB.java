@@ -16,20 +16,21 @@
 
 package org.killbill.billing.catalog;
 
+import jakarta.inject.Inject;
+
 import org.killbill.billing.GuicyKillbillTestSuiteNoDB;
 import org.killbill.billing.catalog.caching.CatalogCache;
 import org.killbill.billing.catalog.caching.CatalogCacheInvalidationCallback;
 import org.killbill.billing.catalog.glue.TestCatalogModuleNoDB;
 import org.killbill.billing.catalog.io.VersionedCatalogLoader;
-import org.killbill.billing.catalog.override.PriceOverride;
+import org.killbill.billing.catalog.override.PriceOverrideSvc;
 import org.killbill.billing.tenant.api.TenantInternalApi;
 import org.killbill.billing.util.cache.CacheControllerDispatcher;
+import org.killbill.commons.utils.io.Resources;
 import org.killbill.xmlloader.XMLLoader;
 import org.testng.annotations.BeforeClass;
 
-import com.google.common.io.Resources;
 import com.google.inject.Guice;
-import com.google.inject.Inject;
 import com.google.inject.Injector;
 
 public abstract class CatalogTestSuiteNoDB extends GuicyKillbillTestSuiteNoDB {
@@ -50,7 +51,7 @@ public abstract class CatalogTestSuiteNoDB extends GuicyKillbillTestSuiteNoDB {
     protected CatalogCacheInvalidationCallback cacheInvalidationCallback;
 
     @Inject
-    protected PriceOverride priceOverride;
+    protected PriceOverrideSvc priceOverride;
 
     @BeforeClass(groups = "fast")
     protected void beforeClass() throws Exception {

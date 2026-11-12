@@ -25,17 +25,6 @@ tableValues() ::= <<
 , :updatedDate
 >>
 
-updateBundleLastSysTime()  ::= <<
-update <tableName()>
-set
-last_sys_update_date = :lastSysUpdateDate
-, updated_by = :createdBy
-, updated_date = :updatedDate
-where id = :id
-<AND_CHECK_TENANT("")>
-;
->>
-
 updateBundleExternalKey()  ::= <<
 update <tableName()>
 set
@@ -48,7 +37,7 @@ where id = :id
 >>
 
 
-renameBundleExternalKey(prefix)  ::= <<
+renameBundleExternalKey(prefix, ids)  ::= <<
 update bundles
 set external_key = concat('kb', '<prefix>', '-', record_id, ':', external_key)
 where <idField("")> in (<ids>)
@@ -95,10 +84,4 @@ account_id = :accountId
 <AND_CHECK_TENANT("")>
 <defaultOrderBy("")>
 ;
->>
-
-searchQuery(prefix) ::= <<
-     <idField(prefix)> = :searchKey
-  or <prefix>external_key = :searchKey
-  or <prefix>account_id = :searchKey
 >>

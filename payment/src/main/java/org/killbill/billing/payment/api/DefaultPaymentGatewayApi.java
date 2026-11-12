@@ -23,7 +23,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 
 import javax.annotation.Nullable;
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.killbill.billing.ErrorCode;
 import org.killbill.billing.account.api.Account;
@@ -39,12 +39,11 @@ import org.killbill.billing.payment.dispatcher.PluginDispatcher;
 import org.killbill.billing.payment.dispatcher.PluginDispatcher.PluginDispatcherReturnType;
 import org.killbill.billing.payment.plugin.api.GatewayNotification;
 import org.killbill.billing.payment.plugin.api.HostedPaymentPageFormDescriptor;
+import org.killbill.commons.utils.Joiner;
 import org.killbill.billing.util.PluginProperties;
 import org.killbill.billing.util.callcontext.CallContext;
 import org.killbill.billing.util.callcontext.InternalCallContextFactory;
 import org.killbill.billing.util.config.definition.PaymentConfig;
-
-import com.google.common.base.Joiner;
 
 import static org.killbill.billing.payment.dispatcher.PaymentPluginDispatcher.dispatchWithExceptionHandling;
 

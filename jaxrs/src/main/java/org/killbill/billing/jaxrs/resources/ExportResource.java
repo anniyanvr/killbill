@@ -22,16 +22,17 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.util.UUID;
 
-import javax.inject.Inject;
-import javax.servlet.http.HttpServletRequest;
-import javax.ws.rs.GET;
-import javax.ws.rs.HeaderParam;
-import javax.ws.rs.Path;
-import javax.ws.rs.PathParam;
-import javax.ws.rs.Produces;
-import javax.ws.rs.WebApplicationException;
-import javax.ws.rs.core.Response;
-import javax.ws.rs.core.StreamingOutput;
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.HeaderParam;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.StreamingOutput;
 
 import org.killbill.billing.account.api.AccountUserApi;
 import org.killbill.billing.jaxrs.util.Context;
@@ -44,19 +45,19 @@ import org.killbill.billing.util.api.ExportUserApi;
 import org.killbill.billing.util.api.TagUserApi;
 import org.killbill.billing.util.callcontext.CallContext;
 import org.killbill.clock.Clock;
-import org.killbill.commons.metrics.TimedResource;
+import org.killbill.commons.metrics.api.annotation.TimedResource;
 
-import com.google.inject.Singleton;
-import io.swagger.annotations.Api;
-import io.swagger.annotations.ApiOperation;
-import io.swagger.annotations.ApiResponse;
-import io.swagger.annotations.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 
-import static javax.ws.rs.core.MediaType.APPLICATION_OCTET_STREAM;
+import static jakarta.ws.rs.core.MediaType.APPLICATION_OCTET_STREAM;
 
 @Singleton
 @Path(JaxrsResource.EXPORT_PATH)
-@Api(value = JaxrsResource.EXPORT_PATH, description = "Export endpoints", tags="Export")
+@Tag(name = "Export", description = "Export endpoints")
 public class ExportResource extends JaxRsResourceBase {
 
     private final ExportUserApi exportUserApi;
@@ -80,15 +81,32 @@ public class ExportResource extends JaxRsResourceBase {
     @GET
     @Path("/{accountId:" + UUID_PATTERN + "}")
     @Produces(APPLICATION_OCTET_STREAM)
-    @ApiOperation(value = "Export account data", response = Response.class)
-    @ApiResponses(value = {@ApiResponse(code = 200, message = "Success"),
-                           @ApiResponse(code = 400, message = "Invalid account id supplied"),
-                           @ApiResponse(code = 404, message = "Account not found")})
+    @Operation(summary = "Export account data")
+    //
+    // Why schema-less @ApiResponse?
+    //   Swagger Core 1.x had built-in filtering for javax.ws.rs.core.Response — it never
+    //   introspected it. Swagger Core 2.x does NOT filter: an explicit
+    //   @Schema(implementation = Response.class) recursively introspects the entire JAX-RS
+    //   Response hierarchy (EntityTag, Link, MediaType, NewCookie, StatusType, UriBuilder),
+    //   polluting the spec with framework internals. The 0.24.x spec had no response schema
+    //   here, so we keep it schema-less to preserve generated-client backward compatibility.
+    //
+    // Why explicit @Content(mediaType)?
+    //   Swagger Core 2.x only records media types inside OAS3 "content" maps, which require
+    //   @Content. Without it, @Produces(APPLICATION_OCTET_STREAM) is invisible to the scanner
+    //   and the Swagger 2.0 converter defaults to produces:["application/json"] — breaking
+    //   codegen (loses OutputStream parameter, wrong Accept header). The @Content here (no
+    //   schema) makes OAS3 truthful AND gives the converter the correct media type.
+    //
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "successful operation",
+                                        content = @Content(mediaType = APPLICATION_OCTET_STREAM)),
+                           @ApiResponse(responseCode = "400", description = "Invalid account id supplied"),
+                           @ApiResponse(responseCode = "404", description = "Account not found")})
     public StreamingOutput exportDataForAccount(@PathParam("accountId") final UUID accountId,
                                                 @HeaderParam(HDR_CREATED_BY) final String createdBy,
                                                 @HeaderParam(HDR_REASON) final String reason,
                                                 @HeaderParam(HDR_COMMENT) final String comment,
-                                                @javax.ws.rs.core.Context final HttpServletRequest request) {
+                                                @jakarta.ws.rs.core.Context final HttpServletRequest request) {
         final CallContext callContext = context.createCallContextWithAccountId(accountId, createdBy, reason, comment, request);
         return new StreamingOutput() {
             @Override

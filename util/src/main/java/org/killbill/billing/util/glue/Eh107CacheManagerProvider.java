@@ -24,16 +24,15 @@ import java.util.Set;
 import javax.cache.CacheManager;
 import javax.cache.Caching;
 import javax.cache.spi.CachingProvider;
-import javax.inject.Inject;
-import javax.inject.Provider;
+import jakarta.inject.Inject;
+import jakarta.inject.Provider;
 
 import org.ehcache.core.spi.store.InternalCacheManager;
 import org.killbill.billing.util.cache.BaseCacheLoader;
 import org.killbill.billing.util.config.definition.EhCacheConfig;
+import org.killbill.commons.metrics.api.MetricRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.codahale.metrics.MetricRegistry;
 
 // EhCache specific provider
 public class Eh107CacheManagerProvider extends EhCacheProviderBase implements Provider<CacheManager> {

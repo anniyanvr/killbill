@@ -17,17 +17,16 @@
 
 package org.killbill.billing.util.glue;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
+import jakarta.inject.Provider;
 
+import org.killbill.commons.utils.annotation.VisibleForTesting;
 import org.killbill.billing.util.config.definition.RedisCacheConfig;
 import org.redisson.Redisson;
 import org.redisson.api.RedissonClient;
 import org.redisson.client.codec.Codec;
 import org.redisson.codec.SerializationCodec;
 import org.redisson.config.Config;
-
-import com.google.common.annotations.VisibleForTesting;
-import com.google.inject.Provider;
 
 public class RedissonCacheClientProvider implements Provider<RedissonClient> {
 

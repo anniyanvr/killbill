@@ -21,10 +21,11 @@ package org.killbill.billing.util.dao;
 import java.util.UUID;
 
 import javax.annotation.Nullable;
-import javax.inject.Inject;
-import javax.inject.Named;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
 
 import org.killbill.billing.ObjectType;
+import org.killbill.commons.utils.Preconditions;
 import org.killbill.billing.util.cache.CacheController;
 import org.killbill.billing.util.cache.CacheControllerDispatcher;
 import org.killbill.billing.util.cache.CacheLoaderArgument;
@@ -36,8 +37,6 @@ import org.killbill.commons.profiling.ProfilingFeature.ProfilingFeatureType;
 import org.skife.jdbi.v2.Handle;
 import org.skife.jdbi.v2.IDBI;
 import org.skife.jdbi.v2.sqlobject.SqlObjectBuilder;
-
-import com.google.common.base.Preconditions;
 
 import static org.killbill.billing.util.glue.IDBISetup.MAIN_RO_IDBI_NAMED;
 
@@ -177,7 +176,7 @@ public class DefaultNonEntityDao implements NonEntityDao {
     }
 
     // 'cache' will be null for the CacheLoader classes -- or if cache is not configured.
-    private class WithCaching<TypeIn, TypeOut> {
+    private static class WithCaching<TypeIn, TypeOut> {
 
         private TypeOut withCaching(final OperationRetrieval<TypeOut> op, @Nullable final TypeIn objectOrRecordId, final ObjectType objectType, final TableName tableName, @Nullable final CacheController<TypeIn, TypeOut> cache) {
 

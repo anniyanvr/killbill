@@ -23,11 +23,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import jakarta.inject.Inject;
+
 import org.apache.shiro.SecurityUtils;
 import org.apache.shiro.config.Ini;
-import org.apache.shiro.config.IniSecurityManagerFactory;
+import org.apache.shiro.ini.IniSecurityManagerFactory;
 import org.apache.shiro.mgt.SecurityManager;
-import org.apache.shiro.util.Factory;
+import org.apache.shiro.lang.util.Factory;
 import org.apache.shiro.util.ThreadContext;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
@@ -38,10 +40,10 @@ import org.killbill.billing.account.api.AccountData;
 import org.killbill.billing.account.api.AccountInternalApi;
 import org.killbill.billing.account.api.AccountUserApi;
 import org.killbill.billing.api.TestApiListener;
+import org.killbill.billing.callcontext.InternalCallContext;
 import org.killbill.billing.catalog.DefaultCatalogService;
 import org.killbill.billing.catalog.api.CatalogService;
 import org.killbill.billing.catalog.api.Currency;
-import org.killbill.billing.catalog.api.StaticCatalog;
 import org.killbill.billing.catalog.api.VersionedCatalog;
 import org.killbill.billing.entitlement.api.EntitlementApi;
 import org.killbill.billing.entitlement.api.SubscriptionApi;
@@ -57,6 +59,7 @@ import org.killbill.billing.security.Permission;
 import org.killbill.billing.security.api.SecurityApi;
 import org.killbill.billing.subscription.api.SubscriptionBaseInternalApi;
 import org.killbill.billing.subscription.api.SubscriptionBaseService;
+import org.killbill.billing.subscription.api.user.SubscriptionBaseApiException;
 import org.killbill.billing.subscription.engine.core.DefaultSubscriptionBaseService;
 import org.killbill.billing.tag.TagInternalApi;
 import org.killbill.billing.util.api.AuditUserApi;
@@ -72,7 +75,6 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 
 import com.google.inject.Guice;
-import com.google.inject.Inject;
 import com.google.inject.Injector;
 import com.google.inject.Stage;
 
@@ -296,6 +298,11 @@ public class EntitlementTestSuiteWithEmbeddedDB extends GuicyKillbillTestSuiteWi
         refreshCallContext(account.getId());
 
         return account;
+    }
+
+    protected void setChargedThroughDate(final UUID entitlementId, final DateTime ctd, final InternalCallContext internalCallContext) throws SubscriptionBaseApiException {
+        final Map<DateTime, List<UUID>> chargeThroughDates = Map.of(ctd, List.of(entitlementId));
+        subscriptionInternalApi.setChargedThroughDates(chargeThroughDates, internalCallContext);
     }
 
     @Override

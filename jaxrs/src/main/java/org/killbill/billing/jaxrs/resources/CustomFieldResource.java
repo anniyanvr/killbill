@@ -19,21 +19,24 @@
 package org.killbill.billing.jaxrs.resources;
 
 import java.net.URI;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 import javax.annotation.Nullable;
-import javax.inject.Inject;
-import javax.inject.Singleton;
-import javax.servlet.http.HttpServletRequest;
-import javax.ws.rs.DefaultValue;
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
-import javax.ws.rs.PathParam;
-import javax.ws.rs.Produces;
-import javax.ws.rs.QueryParam;
-import javax.ws.rs.core.Response;
-import javax.ws.rs.core.Response.Status;
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.ws.rs.DefaultValue;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.Response.Status;
 
 import org.killbill.billing.ObjectType;
 import org.killbill.billing.account.api.AccountApiException;
@@ -44,6 +47,7 @@ import org.killbill.billing.jaxrs.util.Context;
 import org.killbill.billing.jaxrs.util.JaxrsUriBuilder;
 import org.killbill.billing.payment.api.InvoicePaymentApi;
 import org.killbill.billing.payment.api.PaymentApi;
+import org.killbill.commons.utils.Preconditions;
 import org.killbill.billing.util.api.AuditLevel;
 import org.killbill.billing.util.api.AuditUserApi;
 import org.killbill.billing.util.api.CustomFieldApiException;
@@ -55,22 +59,21 @@ import org.killbill.billing.util.callcontext.TenantContext;
 import org.killbill.billing.util.customfield.CustomField;
 import org.killbill.billing.util.entity.Pagination;
 import org.killbill.clock.Clock;
-import org.killbill.commons.metrics.TimedResource;
+import org.killbill.commons.metrics.api.annotation.TimedResource;
 
-import com.google.common.base.Function;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableMap;
-import io.swagger.annotations.Api;
-import io.swagger.annotations.ApiOperation;
-import io.swagger.annotations.ApiResponse;
-import io.swagger.annotations.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Schema;
 
-import static javax.ws.rs.core.MediaType.APPLICATION_JSON;
+import static jakarta.ws.rs.core.MediaType.APPLICATION_JSON;
 
 @Singleton
 @Path(JaxrsResource.CUSTOM_FIELDS_PATH)
-@Api(value = JaxrsResource.CUSTOM_FIELDS_PATH, description = "Operations on custom fields", tags="CustomField")
+@Tag(name = "CustomField", description = "Operations on custom fields")
 public class CustomFieldResource extends JaxRsResourceBase {
 
     @Inject
@@ -90,24 +93,26 @@ public class CustomFieldResource extends JaxRsResourceBase {
     @GET
     @Path("/" + PAGINATION)
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "List custom fields", response = CustomFieldJson.class, responseContainer = "List")
-    @ApiResponses(value = {})
+    @Operation(summary = "List custom fields")
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "successful operation", content = @Content(mediaType = "application/json", array = @ArraySchema(schema = @Schema(implementation = CustomFieldJson.class))))})
     public Response getCustomFields(@QueryParam(QUERY_SEARCH_OFFSET) @DefaultValue("0") final Long offset,
                                     @QueryParam(QUERY_SEARCH_LIMIT) @DefaultValue("100") final Long limit,
                                     @QueryParam(QUERY_AUDIT) @DefaultValue("NONE") final AuditMode auditMode,
-                                    @javax.ws.rs.core.Context final HttpServletRequest request) throws CustomFieldApiException {
+                                    @jakarta.ws.rs.core.Context final HttpServletRequest request) throws CustomFieldApiException {
         final TenantContext tenantContext = context.createTenantContextNoAccountId(request);
         final Pagination<CustomField> customFields = customFieldUserApi.getCustomFields(offset, limit, tenantContext);
-        final URI nextPageUri = uriBuilder.nextPage(CustomFieldResource.class, "getCustomFields", customFields.getNextOffset(), limit, ImmutableMap.<String, String>of(QUERY_AUDIT, auditMode.getLevel().toString()), ImmutableMap.<String, String>of());
+        final URI nextPageUri = uriBuilder.nextPage(CustomFieldResource.class,
+                                                    "getCustomFields",
+                                                    customFields.getNextOffset(),
+                                                    limit,
+                                                    Map.of(QUERY_AUDIT, auditMode.getLevel().toString()),
+                                                    Collections.emptyMap());
 
         return buildStreamingPaginationResponse(customFields,
-                                                new Function<CustomField, CustomFieldJson>() {
-                                                    @Override
-                                                    public CustomFieldJson apply(final CustomField customField) {
-                                                        // TODO Really slow - we should instead try to figure out the account id
-                                                        final List<AuditLog> auditLogs = auditUserApi.getAuditLogs(customField.getId(), ObjectType.CUSTOM_FIELD, auditMode.getLevel(), tenantContext);
-                                                        return new CustomFieldJson(customField, auditLogs);
-                                                    }
+                                                customField -> {
+                                                    // TODO Really slow - we should instead try to figure out the account id
+                                                    final List<AuditLog> auditLogs = auditUserApi.getAuditLogs(customField.getId(), ObjectType.CUSTOM_FIELD, auditMode.getLevel(), tenantContext);
+                                                    return new CustomFieldJson(customField, auditLogs);
                                                 },
                                                 nextPageUri);
     }
@@ -117,18 +122,18 @@ public class CustomFieldResource extends JaxRsResourceBase {
     @GET
     @Path("/" + SEARCH )
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Search custom fields by type, name and optional value", response = CustomFieldJson.class, responseContainer = "List")
-    @ApiResponses(value = {})
+    @Operation(summary = "Search custom fields by type, name and optional value")
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "successful operation", content = @Content(mediaType = "application/json", array = @ArraySchema(schema = @Schema(implementation = CustomFieldJson.class))))})
     public Response searchCustomFieldsByTypeName(@QueryParam("objectType") final String objectType,
                                                  @QueryParam("fieldName") final String fieldName,
                                                  @Nullable @QueryParam("fieldValue") final String fieldValue,
                                                  @QueryParam(QUERY_SEARCH_OFFSET) @DefaultValue("0") final Long offset,
                                                  @QueryParam(QUERY_SEARCH_LIMIT) @DefaultValue("100") final Long limit,
                                                  @QueryParam(QUERY_AUDIT) @DefaultValue("NONE") final AuditMode auditMode,
-                                                 @javax.ws.rs.core.Context final HttpServletRequest request) {
+                                                 @jakarta.ws.rs.core.Context final HttpServletRequest request) {
 
-        Preconditions.checkNotNull(objectType);
-        Preconditions.checkNotNull(fieldName);
+        Preconditions.checkNotNull(objectType, "objectType in searchCustomFieldsByTypeName() is null");
+        Preconditions.checkNotNull(fieldName, "fieldName in searchCustomFieldsByTypeName() is null");
 
         final TenantContext tenantContext = context.createTenantContextNoAccountId(request);
         final Pagination<CustomField> customFields = fieldValue != null ?
@@ -139,19 +144,16 @@ public class CustomFieldResource extends JaxRsResourceBase {
                                                     "searchCustomFields",
                                                     customFields.getNextOffset(),
                                                     limit,
-                                                    ImmutableMap.<String, String>of("objectType", objectType,
-                                                                                    "fieldName", fieldName,
-                                                                                    "fieldValue", MoreObjects.firstNonNull(fieldValue, ""),
-                                                                                    QUERY_AUDIT, auditMode.getLevel().toString()),
-                                                    ImmutableMap.<String, String>of());
+                                                    Map.of("objectType", objectType,
+                                                           "fieldName", fieldName,
+                                                           "fieldValue", Objects.requireNonNullElse(fieldValue, ""),
+                                                           QUERY_AUDIT, auditMode.getLevel().toString()),
+                                                    Collections.emptyMap());
         return buildStreamingPaginationResponse(customFields,
-                                                new Function<CustomField, CustomFieldJson>() {
-                                                    @Override
-                                                    public CustomFieldJson apply(final CustomField customField) {
-                                                        // TODO Really slow - we should instead try to figure out the account id
-                                                        final List<AuditLog> auditLogs = auditUserApi.getAuditLogs(customField.getId(), ObjectType.CUSTOM_FIELD, auditMode.getLevel(), tenantContext);
-                                                        return new CustomFieldJson(customField, auditLogs);
-                                                    }
+                                                customField -> {
+                                                    // TODO Really slow - we should instead try to figure out the account id
+                                                    final List<AuditLog> auditLogs = auditUserApi.getAuditLogs(customField.getId(), ObjectType.CUSTOM_FIELD, auditMode.getLevel(), tenantContext);
+                                                    return new CustomFieldJson(customField, auditLogs);
                                                 },
                                                 nextPageUri);
     }
@@ -162,24 +164,26 @@ public class CustomFieldResource extends JaxRsResourceBase {
     @GET
     @Path("/" + SEARCH + "/{searchKey:" + ANYTHING_PATTERN + "}")
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Search custom fields", response = CustomFieldJson.class, responseContainer = "List")
-    @ApiResponses(value = {})
+    @Operation(summary = "Search custom fields")
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "successful operation", content = @Content(mediaType = "application/json", array = @ArraySchema(schema = @Schema(implementation = CustomFieldJson.class))))})
     public Response searchCustomFields(@PathParam("searchKey") final String searchKey,
                                        @QueryParam(QUERY_SEARCH_OFFSET) @DefaultValue("0") final Long offset,
                                        @QueryParam(QUERY_SEARCH_LIMIT) @DefaultValue("100") final Long limit,
                                        @QueryParam(QUERY_AUDIT) @DefaultValue("NONE") final AuditMode auditMode,
-                                       @javax.ws.rs.core.Context final HttpServletRequest request) throws CustomFieldApiException {
+                                       @jakarta.ws.rs.core.Context final HttpServletRequest request) throws CustomFieldApiException {
         final TenantContext tenantContext = context.createTenantContextNoAccountId(request);
         final Pagination<CustomField> customFields = customFieldUserApi.searchCustomFields(searchKey, offset, limit, tenantContext);
-        final URI nextPageUri = uriBuilder.nextPage(CustomFieldResource.class, "searchCustomFields", customFields.getNextOffset(), limit, ImmutableMap.<String, String>of(QUERY_AUDIT, auditMode.getLevel().toString()), ImmutableMap.<String, String>of("searchKey", searchKey));
+        final URI nextPageUri = uriBuilder.nextPage(CustomFieldResource.class,
+                                                    "searchCustomFields",
+                                                    customFields.getNextOffset(),
+                                                    limit,
+                                                    Map.of(QUERY_AUDIT, auditMode.getLevel().toString()),
+                                                    Map.of("searchKey", searchKey));
         return buildStreamingPaginationResponse(customFields,
-                                                new Function<CustomField, CustomFieldJson>() {
-                                                    @Override
-                                                    public CustomFieldJson apply(final CustomField customField) {
-                                                        // TODO Really slow - we should instead try to figure out the account id
-                                                        final List<AuditLog> auditLogs = auditUserApi.getAuditLogs(customField.getId(), ObjectType.CUSTOM_FIELD, auditMode.getLevel(), tenantContext);
-                                                        return new CustomFieldJson(customField, auditLogs);
-                                                    }
+                                                customField -> {
+                                                    // TODO Really slow - we should instead try to figure out the account id
+                                                    final List<AuditLog> auditLogs = auditUserApi.getAuditLogs(customField.getId(), ObjectType.CUSTOM_FIELD, auditMode.getLevel(), tenantContext);
+                                                    return new CustomFieldJson(customField, auditLogs);
                                                 },
                                                 nextPageUri);
     }
@@ -190,10 +194,11 @@ public class CustomFieldResource extends JaxRsResourceBase {
     @GET
     @Path("/{customFieldId:" + UUID_PATTERN + "}/" + AUDIT_LOG_WITH_HISTORY)
     @Produces(APPLICATION_JSON)
-    @ApiOperation(value = "Retrieve custom field audit logs with history by id", response = AuditLogJson.class, responseContainer = "List")
-    @ApiResponses(value = {@ApiResponse(code = 404, message = "Account not found")})
+    @Operation(summary = "Retrieve custom field audit logs with history by id")
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "successful operation", content = @Content(mediaType = "application/json", array = @ArraySchema(schema = @Schema(implementation = AuditLogJson.class)))),
+                           @ApiResponse(responseCode = "404", description = "Account not found")})
     public Response getCustomFieldAuditLogsWithHistory(@PathParam("customFieldId") final UUID customFieldId,
-                                                   @javax.ws.rs.core.Context final HttpServletRequest request) throws AccountApiException {
+                                                   @jakarta.ws.rs.core.Context final HttpServletRequest request) throws AccountApiException {
         final TenantContext tenantContext = context.createTenantContextNoAccountId(request);
         final List<AuditLogWithHistory> auditLogWithHistory = customFieldUserApi.getCustomFieldAuditLogsWithHistoryForId(customFieldId, AuditLevel.FULL, tenantContext);
         return Response.status(Status.OK).entity(getAuditLogsWithHistory(auditLogWithHistory)).build();

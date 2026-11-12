@@ -19,22 +19,27 @@ package org.killbill.billing.invoice.api;
 
 import java.math.BigDecimal;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 import javax.annotation.Nullable;
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
-import org.joda.time.DateTime;
 import org.joda.time.LocalDate;
 import org.killbill.billing.ErrorCode;
 import org.killbill.billing.callcontext.InternalCallContext;
-import org.killbill.billing.callcontext.InternalTenantContext;
 import org.killbill.billing.catalog.api.Currency;
 import org.killbill.billing.invoice.InvoicePluginDispatcher;
+import org.killbill.billing.invoice.InvoicePluginDispatcher.AdditionalInvoiceItemsResult;
+import org.killbill.billing.invoice.InvoicePluginDispatcher.PriorCallResult;
+import org.killbill.billing.invoice.dao.ExistingInvoiceMetadata;
 import org.killbill.billing.invoice.dao.InvoiceDao;
 import org.killbill.billing.invoice.dao.InvoiceItemModelDao;
 import org.killbill.billing.invoice.dao.InvoiceModelDao;
@@ -50,21 +55,11 @@ import org.killbill.billing.util.globallocker.LockerType;
 import org.killbill.commons.locker.GlobalLock;
 import org.killbill.commons.locker.GlobalLocker;
 import org.killbill.commons.locker.LockFailedException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.killbill.commons.utils.Strings;
 
-import com.google.common.base.Function;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Predicate;
-import com.google.common.collect.Collections2;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterables;
-import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import static org.killbill.billing.invoice.InvoiceDispatcher.INVOICE_SEQUENCE_NUMBER;
 
 public class InvoiceApiHelper {
-
-    private static final Logger log = LoggerFactory.getLogger(InvoiceApiHelper.class);
 
     private final InvoicePluginDispatcher invoicePluginDispatcher;
     private final InvoiceDao dao;
@@ -81,11 +76,11 @@ public class InvoiceApiHelper {
         this.internalCallContextFactory = internalCallContextFactory;
     }
 
-    @SuppressFBWarnings("NP_ALWAYS_NULL_EXCEPTION")
     public List<InvoiceItem> dispatchToInvoicePluginsAndInsertItems(final UUID accountId,
                                                                     final boolean isDryRun,
                                                                     final WithAccountLock withAccountLock,
-                                                                    final LinkedList<PluginProperty> properties,
+                                                                    final LinkedList<PluginProperty> inputProperties,
+                                                                    final boolean insertItems,
                                                                     final CallContext contextMaybeWithoutAccountId) throws InvoiceApiException {
         // Invoked by User API call
         final LocalDate targetDate = null;
@@ -95,10 +90,15 @@ public class InvoiceApiHelper {
         final InternalCallContext internalCallContext = internalCallContextFactory.createInternalCallContext(accountId, contextMaybeWithoutAccountId);
         final CallContext context = internalCallContextFactory.createCallContext(internalCallContext);
 
-        final DateTime rescheduleDate = invoicePluginDispatcher.priorCall(targetDate, existingInvoices, isDryRun, isRescheduled, context, properties, internalCallContext);
-        if (rescheduleDate != null) {
+        // Keep track of properties as they can be updated by plugins at each call
+        Iterable<PluginProperty> pluginProperties = inputProperties;
+
+        final PriorCallResult priorCallResult = invoicePluginDispatcher.priorCall(targetDate, existingInvoices, isDryRun, isRescheduled, context, pluginProperties, internalCallContext);
+        if (priorCallResult.getRescheduleDate() != null) {
             throw new InvoiceApiException(ErrorCode.INVOICE_PLUGIN_API_ABORTED, "delayed scheduling is unsupported for API calls");
         }
+
+        pluginProperties = priorCallResult.getPluginProperties();
 
         boolean success = false;
         GlobalLock lock = null;
@@ -108,25 +108,55 @@ public class InvoiceApiHelper {
 
             invoicesForPlugins = withAccountLock.prepareInvoices();
 
-            final List<InvoiceModelDao> invoiceModelDaos = new LinkedList<InvoiceModelDao>();
-            for (final DefaultInvoice invoiceForPlugin : invoicesForPlugins) {
-                // Call plugin(s)
-                invoicePluginDispatcher.updateOriginalInvoiceWithPluginInvoiceItems(invoiceForPlugin, isDryRun, context, properties, internalCallContext);
+            if (insertItems) {
+                final List<InvoiceModelDao> invoiceModelDaos = new LinkedList<InvoiceModelDao>();
+                for (final DefaultInvoice invoiceForPlugin : invoicesForPlugins) {
 
-                // Transformation to InvoiceModelDao
-                final InvoiceModelDao invoiceModelDao = new InvoiceModelDao(invoiceForPlugin);
-                final List<InvoiceItem> invoiceItems = invoiceForPlugin.getInvoiceItems();
-                final List<InvoiceItemModelDao> invoiceItemModelDaos = toInvoiceItemModelDao(invoiceItems);
-                invoiceModelDao.addInvoiceItems(invoiceItemModelDaos);
+                    // Call plugin(s)
+                    final AdditionalInvoiceItemsResult itemsResult = invoicePluginDispatcher.updateOriginalInvoiceWithPluginInvoiceItems(invoiceForPlugin, isDryRun, context, pluginProperties, targetDate, existingInvoices, isRescheduled, internalCallContext);
+                    // Could be a bit weird for a plugin to keep updating properties for each invoice
+                    pluginProperties = itemsResult.getPluginProperties();
 
-                // Keep track of modified invoices
-                invoiceModelDaos.add(invoiceModelDao);
+                    // Transformation to InvoiceModelDao
+                    final InvoiceModelDao invoiceModelDao = new InvoiceModelDao(invoiceForPlugin);
+
+                    final PluginProperty invoiceSequenceNumber = StreamSupport.stream(pluginProperties.spliterator(), false)
+                                                                              .filter(pp -> INVOICE_SEQUENCE_NUMBER.equals(pp.getKey()))
+                                                                              .findFirst()
+                                                                              .orElse(null);
+                    if (invoiceSequenceNumber != null && !Strings.isNullOrEmpty(invoiceSequenceNumber.getValue().toString())) {
+                        invoiceModelDao.setInvoiceNumber(Integer.valueOf(invoiceSequenceNumber.getValue().toString()));
+                    }
+
+                    final List<InvoiceItem> invoiceItems = invoiceForPlugin.getInvoiceItems();
+                    final List<InvoiceItemModelDao> invoiceItemModelDaos = toInvoiceItemModelDao(invoiceItems);
+                    invoiceModelDao.addInvoiceItems(invoiceItemModelDaos);
+
+                    // Keep track of modified invoices
+                    invoiceModelDaos.add(invoiceModelDao);
+                }
+
+                final List<Invoice> invoices = new LinkedList<>();
+                for (final Invoice invoice : invoicesForPlugins) {
+                    try {
+                        final Invoice invoiceFromDB = new DefaultInvoice(dao.getById(invoice.getId(), internalCallContext));
+                        if (invoiceFromDB != null) {
+                            invoices.add(invoiceFromDB);
+                        }
+                    } catch (final InvoiceApiException e) { //invoice not present in DB, do nothing
+                    }
+                }
+
+                final ExistingInvoiceMetadata existingInvoiceMetadata = new ExistingInvoiceMetadata(invoices);
+
+                final List<InvoiceItemModelDao> createdInvoiceItems = dao.createInvoices(invoiceModelDaos, null, Collections.emptySet(), null, existingInvoiceMetadata, true, internalCallContext);
+                success = true;
+
+                return fromInvoiceItemModelDao(createdInvoiceItems);
+            } else {
+                success = true;
+                return Collections.emptyList();
             }
-
-            final List<InvoiceItemModelDao> createdInvoiceItems = dao.createInvoices(invoiceModelDaos, null, ImmutableSet.of(), internalCallContext);
-            success = true;
-
-            return fromInvoiceItemModelDao(createdInvoiceItems);
         } catch (final LockFailedException e) {
             throw new InvoiceApiException(e, ErrorCode.UNEXPECTED_ERROR, "Failed to process invoice items: failed to acquire lock");
         } finally {
@@ -137,10 +167,10 @@ public class InvoiceApiHelper {
             if (success) {
                 for (final Invoice invoiceForPlugin : invoicesForPlugins) {
                     final DefaultInvoice refreshedInvoice = new DefaultInvoice(dao.getById(invoiceForPlugin.getId(), internalCallContext));
-                    invoicePluginDispatcher.onSuccessCall(targetDate, refreshedInvoice, existingInvoices, isDryRun, isRescheduled, context, properties, internalCallContext);
+                    invoicePluginDispatcher.onSuccessCall(targetDate, refreshedInvoice, existingInvoices, isDryRun, isRescheduled, context, pluginProperties, internalCallContext);
                 }
             } else {
-                invoicePluginDispatcher.onFailureCall(targetDate, null, existingInvoices, isDryRun, isRescheduled, context, properties, internalCallContext);
+                invoicePluginDispatcher.onFailureCall(targetDate, null, existingInvoices, isDryRun, isRescheduled, context, pluginProperties, internalCallContext);
             }
         }
     }
@@ -163,19 +193,14 @@ public class InvoiceApiHelper {
                                             final String description,
                                             @Nullable final String itemDetails,
                                             final InternalCallContext context) throws InvoiceApiException {
-        final InvoiceItem invoiceItemToBeAdjusted = Iterables.<InvoiceItem>tryFind(invoiceToBeAdjusted.getInvoiceItems(),
-                                                                                   new Predicate<InvoiceItem>() {
-                                                                                       @Override
-                                                                                       public boolean apply(final InvoiceItem input) {
-                                                                                           return input.getId().equals(invoiceItemId);
-                                                                                       }
-                                                                                   }).orNull();
-        if (invoiceItemToBeAdjusted == null) {
-            throw new InvoiceApiException(ErrorCode.INVOICE_ITEM_NOT_FOUND, invoiceItemId);
-        }
+
+        final InvoiceItem invoiceItemToBeAdjusted = invoiceToBeAdjusted.getInvoiceItems().stream()
+                .filter(input -> input.getId().equals(invoiceItemId))
+                .findFirst()
+                .orElseThrow(() -> new InvoiceApiException(ErrorCode.INVOICE_ITEM_NOT_FOUND, invoiceItemId));
 
         // Check the specified currency matches the one of the existing invoice
-        final Currency currencyForAdjustment = MoreObjects.firstNonNull(currency, invoiceItemToBeAdjusted.getCurrency());
+        final Currency currencyForAdjustment = Objects.requireNonNullElse(currency, invoiceItemToBeAdjusted.getCurrency());
         if (invoiceItemToBeAdjusted.getCurrency() != currencyForAdjustment) {
             throw new InvoiceApiException(ErrorCode.CURRENCY_INVALID, currency, invoiceItemToBeAdjusted.getCurrency());
         }
@@ -219,22 +244,14 @@ public class InvoiceApiHelper {
     }
 
     private List<InvoiceItem> fromInvoiceItemModelDao(final Collection<InvoiceItemModelDao> invoiceItemModelDaos) {
-        return ImmutableList.<InvoiceItem>copyOf(Collections2.transform(invoiceItemModelDaos,
-                                                                        new Function<InvoiceItemModelDao, InvoiceItem>() {
-                                                                            @Override
-                                                                            public InvoiceItem apply(final InvoiceItemModelDao input) {
-                                                                                return InvoiceItemFactory.fromModelDao(input);
-                                                                            }
-                                                                        }));
+        return invoiceItemModelDaos.stream()
+                .map(InvoiceItemFactory::fromModelDao)
+                .collect(Collectors.toUnmodifiableList());
     }
 
     private List<InvoiceItemModelDao> toInvoiceItemModelDao(final Collection<InvoiceItem> invoiceItems) {
-        return ImmutableList.copyOf(Collections2.transform(invoiceItems,
-                                                           new Function<InvoiceItem, InvoiceItemModelDao>() {
-                                                               @Override
-                                                               public InvoiceItemModelDao apply(final InvoiceItem input) {
-                                                                   return new InvoiceItemModelDao(input);
-                                                               }
-                                                           }));
+        return invoiceItems.stream()
+                .map(InvoiceItemModelDao::new)
+                .collect(Collectors.toUnmodifiableList());
     }
 }

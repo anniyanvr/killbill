@@ -19,25 +19,23 @@ package org.killbill.billing.invoice.generator;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.killbill.billing.ErrorCode;
 import org.killbill.billing.invoice.api.Invoice;
 import org.killbill.billing.invoice.api.InvoiceApiException;
 import org.killbill.billing.invoice.api.InvoiceItem;
 import org.killbill.billing.invoice.api.InvoiceItemType;
-import org.killbill.billing.invoice.model.ItemAdjInvoiceItem;
-import org.killbill.billing.invoice.model.RepairAdjInvoiceItem;
-
-import com.google.common.base.Function;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterables;
+import org.killbill.billing.invoice.optimizer.InvoiceOptimizerBase.AccountInvoices;
+import org.killbill.commons.utils.Preconditions;
+import org.killbill.commons.utils.collect.Iterables;
 
 //
 // This is invoked prior we build the tree of existing items to make sure we simplify the view,
@@ -51,7 +49,11 @@ public class InvoicePruner {
 
     private final Map<UUID, AdjustedRecurringItem> map;
 
-    public InvoicePruner(final Iterable<Invoice> existingInvoices) {
+    public InvoicePruner(final AccountInvoices accountInvoices) {
+
+        final boolean isInvoiceOptimizationOn = accountInvoices.getCutoffDate() != null;
+
+        final Iterable<Invoice> existingInvoices = accountInvoices.getInvoices();
         this.map = new HashMap<>();
         if (existingInvoices != null) {
             for (Invoice i : existingInvoices) {
@@ -73,7 +75,7 @@ public class InvoicePruner {
                     if (targetId != null) {
                         AdjustedRecurringItem entry = map.get(targetId);
                         if (entry == null) {
-                            entry = new AdjustedRecurringItem();
+                            entry = new AdjustedRecurringItem(isInvoiceOptimizationOn);
                             map.put(targetId, entry);
                         }
                         entry.addInvoiceItem(ii);
@@ -98,6 +100,8 @@ public class InvoicePruner {
 
     private static class AdjustedRecurringItem {
 
+        private final boolean isInvoiceOptimizationOn;
+
         private InvoiceItem target;
         private List<InvoiceItem> repaired;
         private List<InvoiceItem> adjusted;
@@ -105,7 +109,8 @@ public class InvoicePruner {
         private Set<UUID> result;
         private boolean isBuilt;
 
-        public AdjustedRecurringItem() {
+        public AdjustedRecurringItem(final boolean isInvoiceOptimizationOn) {
+            this.isInvoiceOptimizationOn = isInvoiceOptimizationOn;
             result = new HashSet<>();
             isBuilt = false;
         }
@@ -154,12 +159,17 @@ public class InvoicePruner {
                 return;
             }
 
-            // Mostly to deal with our unit tests
             if (target == null || target.getAmount() == null) {
                 if (repaired != null) {
+
                     for (final InvoiceItem i : repaired) {
-                        // Keep previous precondition behavior
-                        Preconditions.checkState(false, "Missing cancelledItem for cancelItem=%s", i);
+                        // When invoice optimization is ON, we may miss state from previous invoices leading to having 'dangling' repair item
+                        if (isInvoiceOptimizationOn) {
+                            result.add(i.getId());
+                        } else {
+                            // Keep previous precondition behavior
+                            Preconditions.checkState(false, "Missing cancelledItem for cancelItem=%s", i);
+                        }
                     }
                 }
                 return;
@@ -223,15 +233,10 @@ public class InvoicePruner {
 
         private Set<UUID> getIds(final Iterable<? extends InvoiceItem> items) {
             if (items == null) {
-                return ImmutableSet.of();
+                return Collections.emptySet();
             }
 
-            return ImmutableSet.copyOf(Iterables.transform(items, new Function<InvoiceItem, UUID>() {
-                @Override
-                public UUID apply(final InvoiceItem input) {
-                    return input.getId();
-                }
-            }));
+            return Iterables.toStream(items).map(InvoiceItem::getId).collect(Collectors.toUnmodifiableSet());
         }
 
         private BigDecimal sumAmounts(final Iterable<? extends InvoiceItem> items) {

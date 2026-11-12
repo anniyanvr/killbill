@@ -43,6 +43,7 @@
         <unit name="bullets"/>
         <unit name="slugs"/>
         <unit name="stones"/>
+        <unit name="hours"/>
     </units>
 
     <products>
@@ -85,6 +86,9 @@
             </available>
         </product>
         <product name="Trebuchet">
+            <category>BASE</category>
+        </product>
+        <product name="Training">
             <category>BASE</category>
         </product>
         <product name="Cleaning">
@@ -281,6 +285,32 @@
                 </recurring>
             </finalPhase>
         </plan>
+      <plan name="pistol-in-arrear-monthly-notrial">
+            <product>Pistol</product>
+            <recurringBillingMode>IN_ARREAR</recurringBillingMode>
+            <finalPhase type="EVERGREEN">
+                <duration>
+                    <unit>UNLIMITED</unit>
+                </duration>
+                <recurring>
+                    <billingPeriod>MONTHLY</billingPeriod>
+                    <recurringPrice>
+                        <price>
+                            <currency>USD</currency>
+                            <value>100.00</value>
+                        </price>
+                        <price>
+                            <currency>EUR</currency>
+                            <value>100.00</value>
+                        </price>
+                        <price>
+                            <currency>GBP</currency>
+                            <value>100.00</value>
+                        </price>
+                    </recurringPrice>
+                </recurring>
+            </finalPhase>
+        </plan>        
         <plan name="blowdart-quarterly-notrial">
             <product>Blowdart</product>
             <finalPhase type="EVERGREEN">
@@ -546,22 +576,10 @@
 
         <plan name="pistol-monthly-fixedterm">
             <product>Pistol</product>
-            <initialPhases>
-                <phase type="TRIAL">
-                    <duration>
-                        <unit>DAYS</unit>
-                        <number>30</number>
-                    </duration>
-                    <fixed>
-                        <fixedPrice>
-                        </fixedPrice>
-                    </fixed>
-                </phase>
-            </initialPhases>
             <finalPhase type="FIXEDTERM">
                 <duration>
                     <unit>MONTHS</unit>
-                    <number>12</number>
+                    <number>1</number>
                 </duration>
                 <recurring>
                     <billingPeriod>MONTHLY</billingPeriod>
@@ -1524,6 +1542,44 @@
                 </usages>
             </finalPhase>
         </plan>
+        <plan name="training-usage-in-arrear" prettyName="Training Monthly Plan">
+            <product>Training</product>
+            <finalPhase type="EVERGREEN">
+                <duration>
+                    <unit>UNLIMITED</unit>
+                </duration>
+                <usages>
+                    <usage name="training-in-arrear-usage" prettyName="Training Usage In Arrear" billingMode="IN_ARREAR" usageType="CONSUMABLE">
+                        <billingPeriod>MONTHLY</billingPeriod>
+                        <tiers>
+                            <tier>
+                                <blocks>
+                                    <tieredBlock>
+                                        <unit>hours</unit>
+                                        <size>1</size>
+                                        <prices>
+                                            <price>
+                                                <currency>USD</currency>
+                                                <value>100</value>
+                                            </price>
+                                            <price>
+                                                <currency>EUR</currency>
+                                                <value>100</value>
+                                            </price>
+                                            <price>
+                                                <currency>GBP</currency>
+                                                <value>100</value>
+                                            </price>
+                                        </prices>
+                                        <max>-1</max>
+                                    </tieredBlock>
+                                </blocks>
+                            </tier>
+                        </tiers>
+                    </usage>
+                </usages>
+            </finalPhase>
+        </plan>
     </plans>
     <priceLists>
         <defaultPriceList name="DEFAULT">
@@ -1549,6 +1605,7 @@
                 <plan>bullets-usage-in-arrear</plan>
                 <plan>slugs-usage-in-arrear</plan>
                 <plan>holster-monthly-special</plan>
+                <plan>training-usage-in-arrear</plan>
             </plans>
         </defaultPriceList>
         <childPriceList name="gunclubDiscount">
@@ -1583,6 +1640,7 @@
         <childPriceList name="inArrearNotrial">
             <plans>
                 <plan>blowdart-in-arrear-monthly-notrial</plan>
+                <plan>pistol-in-arrear-monthly-notrial</plan>
             </plans>
         </childPriceList>
         <childPriceList name="trial">

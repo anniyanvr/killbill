@@ -21,6 +21,9 @@ package org.killbill.billing.overdue.glue;
 import java.util.List;
 import java.util.UUID;
 
+import javax.annotation.Nullable;
+
+import org.joda.time.LocalDate;
 import org.killbill.billing.callcontext.InternalCallContext;
 import org.killbill.billing.callcontext.InternalTenantContext;
 import org.killbill.billing.catalog.api.VersionedCatalog;
@@ -48,6 +51,8 @@ import org.killbill.billing.util.glue.CallContextModule;
 import org.killbill.billing.util.glue.ConfigModule;
 import org.killbill.billing.util.glue.CustomFieldModule;
 import org.killbill.billing.util.glue.EventModule;
+import org.killbill.commons.metrics.api.MetricRegistry;
+import org.killbill.commons.metrics.impl.NoOpMetricRegistry;
 
 import com.google.inject.name.Names;
 
@@ -76,6 +81,8 @@ public class TestOverdueModule extends DefaultOverdueModule {
 
         bind(OverdueBusListenerTester.class).asEagerSingleton();
         bind(TestOverdueHelper.class).asEagerSingleton();
+
+        bind(MetricRegistry.class).to(NoOpMetricRegistry.class).asEagerSingleton();
     }
 
     public void installOverdueConfigCache() {
@@ -101,7 +108,7 @@ public class TestOverdueModule extends DefaultOverdueModule {
         }
 
         @Override
-        public List<BlockingState> getBlockingAllForAccount(final VersionedCatalog catalog, final InternalTenantContext context) {
+        public List<BlockingState> getBlockingActiveForAccount(final VersionedCatalog catalog, @Nullable final LocalDate cutoffDt, final InternalTenantContext context) {
             throw new UnsupportedOperationException();
         }
 

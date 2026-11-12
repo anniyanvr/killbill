@@ -19,8 +19,10 @@ package org.killbill.billing.catalog;
 
 import java.io.ByteArrayInputStream;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 
-import javax.xml.bind.JAXBException;
+import jakarta.xml.bind.JAXBException;
 
 import org.joda.time.DateTime;
 import org.killbill.billing.ErrorCode;
@@ -51,11 +53,20 @@ import org.killbill.xmlloader.ValidationException;
 import org.killbill.xmlloader.XMLLoader;
 import org.killbill.xmlloader.XMLWriter;
 
-import com.google.common.collect.ImmutableList;
-
 public class CatalogUpdater {
 
-    public static String DEFAULT_CATALOG_NAME = "DEFAULT";
+    public static final String DEFAULT_CATALOG_NAME = "DEFAULT";
+    
+    public static final String INVALID_PLAN = "Plan is invalid. Please check.";
+    
+    public static final String INVALID_PRODUCT_NAME = "Please provide valid product name.";
+    
+    public static final String INVALID_PRICE = "Please check amount and currency. Amount should be greater than 0 and currency should be valid.";
+    
+    public static final String BASE_PLAN_PRODUCTS_NOT_EMPTY = "List of available base products should not be empty for add-ons.";
+    
+    public static final String EXISTING_PRODUCTS_NOT_EMPTY = "Available base products contain invalid product.Please check.";
+            
 
     private final DefaultMutableStaticCatalog catalog;
 
@@ -72,8 +83,8 @@ public class CatalogUpdater {
                 .setCatalogName(DEFAULT_CATALOG_NAME)
                 .setEffectiveDate(effectiveDate.toDate())
                 .setRecurringBillingMode(BillingMode.IN_ADVANCE)
-                .setProducts(ImmutableList.<Product>of())
-                .setPlans(ImmutableList.<Plan>of())
+                .setProducts(Collections.emptyList())
+                .setPlans(Collections.emptyList())
                 .setPriceLists(new DefaultPriceListSet(defaultPriceList, new DefaultPriceList[0]))
                 .setPlanRules(getSaneDefaultPlanRules(defaultPriceList));
         if (currencies != null && currencies.length > 0) {
@@ -94,13 +105,13 @@ public class CatalogUpdater {
         try {
             final String newCatalog = XMLWriter.writeXML(catalog, StandaloneCatalog.class);
             // Verify we can deserialize this catalog prior we commit to disk
-            XMLLoader.getObjectFromStream(new ByteArrayInputStream(newCatalog.getBytes()), StandaloneCatalog.class);
+            XMLLoader.getObjectFromStream(new ByteArrayInputStream(newCatalog.getBytes(StandardCharsets.UTF_8)), StandaloneCatalog.class);
             return newCatalog;
-        } catch (ValidationException e) {
+        } catch (final ValidationException e) {
             throw new CatalogApiException(e, ErrorCode.CAT_INVALID_FOR_TENANT, internalTenantContext.getTenantRecordId());
-        } catch (JAXBException e) {
+        } catch (final JAXBException e) {
             throw new CatalogApiException(e, ErrorCode.CAT_INVALID_FOR_TENANT, internalTenantContext.getTenantRecordId());
-        } catch (Exception e) {
+        } catch (final Exception e) {
             throw new RuntimeException(e);
         }
     }
@@ -109,12 +120,12 @@ public class CatalogUpdater {
 
         // We need at least a planId
         if (desc == null || desc.getPlanId() == null) {
-            throw new CatalogApiException(ErrorCode.CAT_INVALID_SIMPLE_PLAN_DESCRIPTOR, desc);
+            throw new CatalogApiException(ErrorCode.CAT_INVALID_SIMPLE_PLAN_DESCRIPTOR , INVALID_PLAN);
         }
 
         DefaultPlan plan = (DefaultPlan) getExistingPlan(desc.getPlanId());
         if (plan == null && desc.getProductName() == null) {
-            throw new CatalogApiException(ErrorCode.CAT_INVALID_SIMPLE_PLAN_DESCRIPTOR, desc);
+            throw new CatalogApiException(ErrorCode.CAT_INVALID_SIMPLE_PLAN_DESCRIPTOR, INVALID_PRODUCT_NAME);
         }
 
         validateNewPlanDescriptor(desc);
@@ -136,7 +147,7 @@ public class CatalogUpdater {
             plan.setProduct(product);
             plan.setRecurringBillingMode(catalog.getRecurringBillingMode());
 
-            if (desc.getTrialLength() > 0 && desc.getTrialTimeUnit() != TimeUnit.UNLIMITED) {
+            if (desc.getTrialLength() != null && desc.getTrialLength() > 0 && desc.getTrialTimeUnit() != TimeUnit.UNLIMITED) {
                 final DefaultPlanPhase trialPhase = new DefaultPlanPhase();
                 trialPhase.setPhaseType(PhaseType.TRIAL);
                 trialPhase.setDuration(new DefaultDuration().setUnit(desc.getTrialTimeUnit()).setNumber(desc.getTrialLength()));
@@ -287,16 +298,16 @@ public class CatalogUpdater {
         final boolean invalidPrice = (desc.getAmount() == null || desc.getAmount().compareTo(BigDecimal.ZERO) < 0) ||
                                      desc.getCurrency() == null;
         if (invalidPlan || invalidPrice) {
-            throw new CatalogApiException(ErrorCode.CAT_INVALID_SIMPLE_PLAN_DESCRIPTOR, desc);
+            throw new CatalogApiException(ErrorCode.CAT_INVALID_SIMPLE_PLAN_DESCRIPTOR,  INVALID_PRICE);
         }
 
         if (desc.getProductCategory() == ProductCategory.ADD_ON) {
             if (desc.getAvailableBaseProducts() == null || desc.getAvailableBaseProducts().isEmpty()) {
-                throw new CatalogApiException(ErrorCode.CAT_INVALID_SIMPLE_PLAN_DESCRIPTOR, desc);
+                throw new CatalogApiException(ErrorCode.CAT_INVALID_SIMPLE_PLAN_DESCRIPTOR,  BASE_PLAN_PRODUCTS_NOT_EMPTY);
             }
             for (final String cur : desc.getAvailableBaseProducts()) {
                 if (getExistingProduct(cur) == null) {
-                    throw new CatalogApiException(ErrorCode.CAT_INVALID_SIMPLE_PLAN_DESCRIPTOR, desc);
+                    throw new CatalogApiException(ErrorCode.CAT_INVALID_SIMPLE_PLAN_DESCRIPTOR, EXISTING_PRODUCTS_NOT_EMPTY);
                 }
             }
         }

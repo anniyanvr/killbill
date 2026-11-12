@@ -21,16 +21,16 @@ package org.killbill.billing.jaxrs;
 import java.io.IOException;
 import java.io.InputStreamReader;
 
-import javax.servlet.ServletException;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
-
-import com.google.common.io.CharStreams;
+import org.killbill.commons.utils.io.Resources;
+import org.killbill.commons.utils.io.CharStreams;
 
 public class TestJetty {
 

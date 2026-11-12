@@ -17,7 +17,7 @@
 
 package org.killbill.billing.server.modules;
 
-import javax.servlet.ServletContext;
+import jakarta.servlet.ServletContext;
 
 import org.killbill.billing.account.glue.DefaultAccountModule;
 import org.killbill.billing.beatrix.glue.BeatrixModule;
@@ -34,6 +34,7 @@ import org.killbill.billing.server.config.KillbillServerConfig;
 import org.killbill.billing.subscription.glue.DefaultSubscriptionModule;
 import org.killbill.billing.tenant.glue.DefaultTenantModule;
 import org.killbill.billing.usage.glue.UsageModule;
+import org.killbill.billing.util.config.definition.JaxrsConfig;
 import org.killbill.billing.util.email.templates.TemplateModule;
 import org.killbill.billing.util.glue.AuditModule;
 import org.killbill.billing.util.glue.BroadcastModule;
@@ -51,6 +52,7 @@ import org.killbill.billing.util.glue.NonEntityDaoModule;
 import org.killbill.billing.util.glue.RecordIdModule;
 import org.killbill.billing.util.glue.SecurityModule;
 import org.killbill.billing.util.glue.TagStoreModule;
+import org.skife.config.AugmentedConfigurationObjectFactory;
 
 public class KillpayServerModule extends KillbillServerModule {
 
@@ -74,8 +76,12 @@ public class KillpayServerModule extends KillbillServerModule {
         install(new ExportModule(configSource));
         install(new GlobalLockerModule(configSource));
         install(new KillBillShiroAopModule(configSource));
-        install(new KillbillApiAopModule());
-        install(new JaxRSAopModule());
+
+        final AugmentedConfigurationObjectFactory factory = new AugmentedConfigurationObjectFactory(skifeConfigSource);
+        final JaxrsConfig jaxrsConfig = factory.build(JaxrsConfig.class);
+        install(new KillbillApiAopModule(jaxrsConfig));
+        install(new JaxRSAopModule(jaxrsConfig));
+
         install(new KillBillShiroWebModule(servletContext, skifeConfigSource));
         install(new NonEntityDaoModule(configSource));
         install(new PaymentModule(configSource));

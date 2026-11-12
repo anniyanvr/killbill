@@ -19,25 +19,26 @@ package org.killbill.billing.payment.config;
 
 import java.util.List;
 
-import javax.inject.Inject;
-import javax.inject.Named;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
 
 import org.killbill.billing.callcontext.InternalTenantContext;
 import org.killbill.billing.util.config.definition.KillbillConfig;
 import org.killbill.billing.util.config.definition.PaymentConfig;
 import org.killbill.billing.util.config.tenant.CacheConfig;
 import org.killbill.billing.util.config.tenant.MultiTenantConfigBase;
+import org.killbill.billing.util.config.tenant.MultiTenantLockAwareConfigBase;
 import org.killbill.billing.util.glue.KillBillModule;
 import org.skife.config.Param;
 import org.skife.config.TimeSpan;
 
-public class MultiTenantPaymentConfig extends MultiTenantConfigBase implements PaymentConfig {
+public class MultiTenantPaymentConfig extends MultiTenantLockAwareConfigBase implements PaymentConfig {
 
     private final PaymentConfig staticConfig;
 
     @Inject
     public MultiTenantPaymentConfig(@Named(KillBillModule.STATIC_CONFIG) final PaymentConfig staticConfig, final CacheConfig cacheConfig) {
-        super(cacheConfig);
+        super(staticConfig, cacheConfig);
         this.staticConfig = staticConfig;
     }
 
@@ -139,6 +140,7 @@ public class MultiTenantPaymentConfig extends MultiTenantConfigBase implements P
         return getPaymentControlPluginNames();
     }
 
+
     @Override
     public TimeSpan getJanitorRunningRate() {
         return staticConfig.getJanitorRunningRate();
@@ -167,6 +169,16 @@ public class MultiTenantPaymentConfig extends MultiTenantConfigBase implements P
     @Override
     public int getMaxGlobalLockRetries() {
         return staticConfig.getMaxGlobalLockRetries();
+    }
+
+    @Override
+    public boolean isAllowedToOverwritePaymentMethodId() {
+        return staticConfig.isAllowedToOverwritePaymentMethodId();
+    }
+
+    @Override
+    public boolean allowEmptyInvoice() {
+        return staticConfig.allowEmptyInvoice();
     }
 
     @Override

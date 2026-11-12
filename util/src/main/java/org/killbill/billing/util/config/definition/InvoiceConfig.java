@@ -27,7 +27,7 @@ import org.skife.config.Description;
 import org.skife.config.Param;
 import org.skife.config.TimeSpan;
 
-public interface InvoiceConfig extends KillbillConfig {
+public interface InvoiceConfig extends LockAwareConfig {
 
 
     // Default period value for when nothing is specified
@@ -36,9 +36,28 @@ public interface InvoiceConfig extends KillbillConfig {
     //
     String DEFAULT_NULL_PERIOD = "P200Y";
 
-    public enum UsageDetailMode {
+    enum AccountTzOffset {
+        /*
+         * Use the one time computation offset from when account was created, i.e context#fixedOffsetTimeZone.
+         * This is the same behavior we use for other invoice items (RECURRING)
+         */
+        FIXED,
+        /*
+         * Recompute offset based on where we are during the year, i.e context#accountTimeZone.
+         * This produces consistent results across similar accounts (same TZ, same subscriptions, usage points)
+         * even though they were started at different time during the year, i.e summer/winter.
+         */
+        VARIABLE,
+    }
+
+    enum UsageDetailMode {
         AGGREGATE,
         DETAIL,
+    }
+
+    enum InArrearMode {
+        DEFAULT,
+        GREEDY
     }
 
     @Config("org.killbill.invoice.maxNumberOfMonthsInFuture")
@@ -71,6 +90,16 @@ public interface InvoiceConfig extends KillbillConfig {
     @Default("false")
     @Description("Whether we disable writing $0 usage amounts")
     boolean isUsageZeroAmountDisabled(@Param("dummy") final InternalTenantContext tenantContext);
+
+    @Config("org.killbill.invoice.usage.missing.lenient")
+    @Default("false")
+    @Description("Whether we fail invoice when we discover missing past usage records")
+    boolean isUsageMissingLenient();
+
+    @Config("org.killbill.invoice.usage.missing.lenient")
+    @Default("false")
+    @Description("Whether we fail invoice when we discover missing past usage records")
+    boolean isUsageMissingLenient(@Param("dummy") final InternalTenantContext tenantContext);
 
     @Config("org.killbill.invoice.maxDailyNumberOfItemsSafetyBound")
     @Default("15")
@@ -152,6 +181,27 @@ public interface InvoiceConfig extends KillbillConfig {
     @Description("How the result for an item will be reported (aggregate mode or detail mode). ")
     UsageDetailMode getItemResultBehaviorMode(@Param("dummy") final InternalTenantContext tenantContext);
 
+
+    @Config("org.killbill.invoice.usage.tz.mode")
+    @Default("FIXED")
+    @Description("Behavior to include usage points with respect to day light saving")
+    AccountTzOffset getAccountTzOffsetMode();
+
+    @Config("org.killbill.invoice.usage.tz.mode")
+    @Default("FIXED")
+    @Description("Behavior to include usage points with respect to day light saving")
+    AccountTzOffset getAccountTzOffsetMode(@Param("dummy") final InternalTenantContext tenantContext);
+
+    @Config("org.killbill.invoice.inArrear.mode")
+    @Default("DEFAULT")
+    @Description("Determine how the system should behave for in-arrear plans")
+    InArrearMode getInArrearMode();
+
+    @Config("org.killbill.invoice.inArrear.mode")
+    @Default("DEFAULT")
+    @Description("Determine how the system should behave for in-arrear plans")
+    InArrearMode getInArrearMode(@Param("dummy") final InternalTenantContext tenantContext);
+
     @Config("org.killbill.invoice.parkAccountsWithUnknownUsage")
     @Default("false")
     @Description("Whether to park accounts when usage data is recorded but not defined in the catalog")
@@ -162,16 +212,15 @@ public interface InvoiceConfig extends KillbillConfig {
     @Description("Whether to park accounts when usage data is recorded but not defined in the catalog")
     boolean shouldParkAccountsWithUnknownUsage(@Param("dummy") final InternalTenantContext tenantContext);
 
-    // Disabled by default
-    @Config("org.killbill.invoice.rescheduleIntervalOnLock")
-    @Default("0s")
-    @Description("Tme delay to reschedule an invoice run when lock is held")
-    TimeSpan getRescheduleIntervalOnLock();
+    @Config("org.killbill.invoice.parkAccountsOnAllExceptions")
+    @Default("true")
+    @Description("Whether to park accounts on all unrecoverable invoice processing failures (lock failure, subscriber exceptions, billing event fetch failures)")
+    boolean isParkAccountsOnAllExceptions();
 
-    @Config("org.killbill.invoice.rescheduleIntervalOnLock")
-    @Default("0s")
-    @Description("Tme delay to reschedule an invoice run when lock is held")
-    TimeSpan getRescheduleIntervalOnLock(@Param("dummy") final InternalTenantContext tenantContext);
+    @Config("org.killbill.invoice.parkAccountsOnAllExceptions")
+    @Default("true")
+    @Description("Whether to park accounts on all unrecoverable invoice processing failures (lock failure, subscriber exceptions, billing event fetch failures)")
+    boolean isParkAccountsOnAllExceptions(@Param("dummy") final InternalTenantContext tenantContext);
 
     @Config("org.killbill.invoice.maxInvoiceLimit")
     @Default(DEFAULT_NULL_PERIOD)
@@ -182,5 +231,15 @@ public interface InvoiceConfig extends KillbillConfig {
     @Default(DEFAULT_NULL_PERIOD)
     @Description("How far back in time should invoice generation look at")
     Period getMaxInvoiceLimit(@Param("dummy") final InternalTenantContext tenantContext);
+
+    @Config("org.killbill.invoice.proration.fixed.days")
+    @Default("0")
+    @Description("Fixed number of days in a month to avoid proration")
+    int getProrationFixedDays();
+
+    @Config("org.killbill.invoice.proration.fixed.days")
+    @Default("0")
+    @Description("Fixed number of days in a month to avoid proration")
+    int getProrationFixedDays(@Param("dummy") final InternalTenantContext tenantContext);
 
 }

@@ -22,10 +22,11 @@ package org.killbill.billing.server.modules;
 import java.util.Collection;
 import java.util.Set;
 
-import javax.servlet.ServletContext;
-import javax.servlet.ServletRequest;
-import javax.servlet.ServletResponse;
-import javax.servlet.http.HttpServletRequest;
+import jakarta.inject.Inject;
+import jakarta.servlet.ServletContext;
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletResponse;
+import jakarta.servlet.http.HttpServletRequest;
 
 import org.apache.shiro.authc.pam.ModularRealmAuthenticator;
 import org.apache.shiro.authc.pam.ModularRealmAuthenticatorWith540;
@@ -59,10 +60,8 @@ import org.killbill.billing.util.security.shiro.realm.KillBillJdbcRealm;
 import org.killbill.billing.util.security.shiro.realm.KillBillJndiLdapRealm;
 import org.killbill.billing.util.security.shiro.realm.KillBillOktaRealm;
 import org.skife.config.ConfigSource;
-import org.skife.config.ConfigurationObjectFactory;
+import org.skife.config.AugmentedConfigurationObjectFactory;
 
-import com.google.common.collect.ImmutableSet;
-import com.google.inject.Inject;
 import com.google.inject.Key;
 import com.google.inject.Provider;
 import com.google.inject.TypeLiteral;
@@ -83,7 +82,7 @@ public class KillBillShiroWebModule extends ShiroWebModuleWith435 {
 
     @Override
     protected void configureShiroWeb() {
-        final RedisCacheConfig redisCacheConfig = new ConfigurationObjectFactory(new ConfigSource() {
+        final RedisCacheConfig redisCacheConfig = new AugmentedConfigurationObjectFactory(new ConfigSource() {
             @Override
             public String getString(final String propertyName) {
                 return configSource.getString(propertyName);
@@ -97,9 +96,9 @@ public class KillBillShiroWebModule extends ShiroWebModuleWith435 {
             bind(CacheManager.class).toProvider(EhcacheShiroManagerProvider.class).asEagerSingleton();
         }
 
-        final SecurityConfig securityConfig = new ConfigurationObjectFactory(configSource).build(SecurityConfig.class);
+        final SecurityConfig securityConfig = new AugmentedConfigurationObjectFactory(configSource).build(SecurityConfig.class);
         final Collection<Realm> realms = defaultSecurityManager.getRealms() != null ? defaultSecurityManager.getRealms() :
-                                         ImmutableSet.<Realm>of(new IniRealm(securityConfig.getShiroResourcePath())); // Mainly for testing
+                                         Set.of(new IniRealm(securityConfig.getShiroResourcePath())); // Mainly for testing
         for (final Realm realm : realms) {
             bindRealm().toInstance(realm);
         }
@@ -112,7 +111,7 @@ public class KillBillShiroWebModule extends ShiroWebModuleWith435 {
     }
 
     private void configureShiroForRBAC() {
-        final RbacConfig config = new ConfigurationObjectFactory(configSource).build(RbacConfig.class);
+        final RbacConfig config = new AugmentedConfigurationObjectFactory(configSource).build(RbacConfig.class);
         bind(RbacConfig.class).toInstance(config);
 
         bindRealm().to(KillBillJdbcRealm.class).asEagerSingleton();

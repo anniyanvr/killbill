@@ -18,14 +18,18 @@
 
 package org.killbill.billing.subscription.api.user;
 
+import java.util.UUID;
+
 import javax.annotation.Nullable;
 
 import org.joda.time.DateTime;
 import org.joda.time.Interval;
 import org.killbill.billing.ErrorCode;
 import org.killbill.billing.api.TestApiListener.NextEvent;
+import org.killbill.billing.callcontext.InternalCallContext;
 import org.killbill.billing.catalog.api.BillingActionPolicy;
 import org.killbill.billing.catalog.api.BillingPeriod;
+import org.killbill.billing.catalog.api.CatalogApiException;
 import org.killbill.billing.catalog.api.Duration;
 import org.killbill.billing.catalog.api.PlanPhase;
 import org.killbill.billing.catalog.api.PlanPhaseSpecifier;
@@ -33,6 +37,8 @@ import org.killbill.billing.catalog.api.PriceListSet;
 import org.killbill.billing.entitlement.api.DefaultEntitlementSpecifier;
 import org.killbill.billing.subscription.SubscriptionTestSuiteNoDB;
 import org.killbill.billing.subscription.api.SubscriptionBase;
+import org.killbill.billing.subscription.catalog.SubscriptionCatalog;
+import org.killbill.billing.subscription.engine.dao.MockSubscriptionDaoMemory;
 import org.killbill.billing.subscription.exceptions.SubscriptionBaseError;
 import org.killbill.clock.DefaultClock;
 import org.testng.Assert;
@@ -116,14 +122,14 @@ public class TestUserApiError extends SubscriptionTestSuiteNoDB {
             Assert.fail("Call changePlanWithPolicy should have failed");
         } catch (final SubscriptionBaseError error) {
             assertTrue(true);
-            assertEquals(subscriptionInternalApi.getSubscriptionFromId(subscription.getId(), internalCallContext).getCurrentPlan().getRecurringBillingPeriod(), BillingPeriod.ANNUAL);
+            assertEquals(subscriptionInternalApi.getSubscriptionFromId(subscription.getId(), false, internalCallContext).getCurrentPlan().getRecurringBillingPeriod(), BillingPeriod.ANNUAL);
         }
 
         // Assume the call takes less than a second
         final PlanPhaseSpecifier planPhaseSpecifier = new PlanPhaseSpecifier("Pistol", BillingPeriod.MONTHLY, PriceListSet.DEFAULT_PRICELIST_NAME);
         assertEquals(DefaultClock.truncateMs(subscription.changePlanWithPolicy(new DefaultEntitlementSpecifier(planPhaseSpecifier), BillingActionPolicy.IMMEDIATE, callContext)),
                      DefaultClock.truncateMs(clock.getUTCNow()));
-        assertEquals(subscriptionInternalApi.getSubscriptionFromId(subscription.getId(), internalCallContext).getCurrentPlan().getRecurringBillingPeriod(), BillingPeriod.MONTHLY);
+        assertEquals(subscriptionInternalApi.getSubscriptionFromId(subscription.getId(), false, internalCallContext).getCurrentPlan().getRecurringBillingPeriod(), BillingPeriod.MONTHLY);
     }
 
     @Test(groups = "fast")
@@ -142,9 +148,9 @@ public class TestUserApiError extends SubscriptionTestSuiteNoDB {
         final DateTime expectedPhaseTrialChange = TestSubscriptionHelper.addDuration(subscription.getStartDate(), trialPhase.getDuration());
         final Duration ctd = testUtil.getDurationMonth(1);
         final DateTime newChargedThroughDate = TestSubscriptionHelper.addDuration(expectedPhaseTrialChange, ctd);
-        subscriptionInternalApi.setChargedThroughDate(subscription.getId(), newChargedThroughDate, internalCallContext);
+        setChargedThroughDate(subscription.getId(), newChargedThroughDate, internalCallContext);
 
-        subscription = subscriptionInternalApi.getSubscriptionFromId(subscription.getId(), internalCallContext);
+        subscription = subscriptionInternalApi.getSubscriptionFromId(subscription.getId(), false, internalCallContext);
 
         subscription.cancelWithPolicy(BillingActionPolicy.END_OF_TERM, callContext);
         try {
@@ -157,6 +163,19 @@ public class TestUserApiError extends SubscriptionTestSuiteNoDB {
 
         assertListenerStatus();
     }
+
+    private void setChargedThroughDate(UUID subscriptionId, DateTime chargedThruDate, InternalCallContext context) throws SubscriptionBaseApiException {
+        try {
+            final SubscriptionCatalog catalog = subscriptionCatalogApi.getFullCatalog(context);
+            final DefaultSubscriptionBase subscription = (DefaultSubscriptionBase) dao.getSubscriptionFromId(subscriptionId, catalog, false, context);
+            final SubscriptionBuilder builder = new SubscriptionBuilder(subscription)
+                                                                 .setChargedThroughDate(chargedThruDate);
+            ((MockSubscriptionDaoMemory)dao).updateChargedThroughDate(new DefaultSubscriptionBase(builder), context);
+        } catch (final CatalogApiException e) {
+            throw new SubscriptionBaseApiException(e);
+        }
+    }
+
 
     @Test(groups = "fast")
     public void testUncancelBadState() throws SubscriptionBaseApiException {

@@ -19,8 +19,8 @@ package org.killbill.billing.invoice.config;
 
 import java.util.List;
 
-import javax.inject.Inject;
-import javax.inject.Named;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
 
 import org.joda.time.Period;
 import org.killbill.billing.callcontext.InternalTenantContext;
@@ -28,17 +28,18 @@ import org.killbill.billing.util.config.definition.InvoiceConfig;
 import org.killbill.billing.util.config.definition.KillbillConfig;
 import org.killbill.billing.util.config.tenant.CacheConfig;
 import org.killbill.billing.util.config.tenant.MultiTenantConfigBase;
+import org.killbill.billing.util.config.tenant.MultiTenantLockAwareConfigBase;
 import org.killbill.billing.util.glue.KillBillModule;
 import org.skife.config.TimeSpan;
 
-public class MultiTenantInvoiceConfig extends MultiTenantConfigBase implements InvoiceConfig {
+public class MultiTenantInvoiceConfig extends MultiTenantLockAwareConfigBase implements InvoiceConfig {
 
 
     private final InvoiceConfig staticConfig;
 
     @Inject
     public MultiTenantInvoiceConfig(@Named(KillBillModule.STATIC_CONFIG) final InvoiceConfig staticConfig, final CacheConfig cacheConfig) {
-        super(cacheConfig);
+        super(staticConfig, cacheConfig);
         this.staticConfig = staticConfig;
     }
 
@@ -85,6 +86,20 @@ public class MultiTenantInvoiceConfig extends MultiTenantConfigBase implements I
     }
 
     @Override
+    public boolean isUsageMissingLenient() {
+        return staticConfig.isUsageMissingLenient();
+    }
+
+    @Override
+    public boolean isUsageMissingLenient(final InternalTenantContext tenantContext) {
+        final String result = getStringTenantConfig("isUsageMissingLenient", tenantContext);
+        if (result != null) {
+            return Boolean.parseBoolean(result);
+        }
+        return isUsageMissingLenient();
+    }
+
+    @Override
     public int getMaxDailyNumberOfItemsSafetyBound() {
         return staticConfig.getMaxDailyNumberOfItemsSafetyBound();
     }
@@ -124,6 +139,21 @@ public class MultiTenantInvoiceConfig extends MultiTenantConfigBase implements I
             return new Period(result);
         }
         return getMaxInvoiceLimit();
+    }
+
+    @Override
+    public int getProrationFixedDays() {
+        return staticConfig.getProrationFixedDays();
+    }
+
+    @Override
+    public int getProrationFixedDays(final InternalTenantContext tenantContext) {
+        final String result = getStringTenantConfig("getProrationFixedDays", tenantContext);
+        if (result != null) {
+            return Integer.parseInt(result);
+        }
+        return getProrationFixedDays();
+
     }
 
     @Override
@@ -198,7 +228,6 @@ public class MultiTenantInvoiceConfig extends MultiTenantConfigBase implements I
         if (mode == UsageDetailMode.AGGREGATE || mode == UsageDetailMode.DETAIL) {
             return mode;
         }
-
         return UsageDetailMode.AGGREGATE;
     }
 
@@ -209,12 +238,46 @@ public class MultiTenantInvoiceConfig extends MultiTenantConfigBase implements I
         if (result != null){
             return UsageDetailMode.valueOf(result);
         }
-
         if (mode == UsageDetailMode.AGGREGATE || mode == UsageDetailMode.DETAIL) {
             return mode;
         }
-
         return UsageDetailMode.AGGREGATE;
+    }
+
+    @Override
+    public AccountTzOffset getAccountTzOffsetMode() {
+        final AccountTzOffset mode = staticConfig.getAccountTzOffsetMode();
+        if (mode == AccountTzOffset.FIXED || mode == AccountTzOffset.VARIABLE) {
+            return mode;
+        }
+        return AccountTzOffset.FIXED;
+    }
+
+    @Override
+    public AccountTzOffset getAccountTzOffsetMode(final InternalTenantContext tenantContext) {
+        final String result = getStringTenantConfig("getAccountTzOffsetMode", tenantContext);
+        if (result != null){
+            return AccountTzOffset.valueOf(result);
+        }
+        return getAccountTzOffsetMode();
+    }
+
+    @Override
+    public InArrearMode getInArrearMode() {
+        final InArrearMode mode = staticConfig.getInArrearMode();
+        if (mode == InArrearMode.DEFAULT || mode == InArrearMode.GREEDY) {
+            return mode;
+        }
+        return InArrearMode.DEFAULT;
+    }
+
+    @Override
+    public InArrearMode getInArrearMode(final InternalTenantContext tenantContext) {
+        final String result = getStringTenantConfig("getInArrearMode", tenantContext);
+        if (result != null){
+            return InArrearMode.valueOf(result);
+        }
+        return getInArrearMode();
     }
 
     @Override
@@ -232,17 +295,17 @@ public class MultiTenantInvoiceConfig extends MultiTenantConfigBase implements I
     }
 
     @Override
-    public TimeSpan getRescheduleIntervalOnLock() {
-        return staticConfig.getRescheduleIntervalOnLock();
+    public boolean isParkAccountsOnAllExceptions() {
+        return staticConfig.isParkAccountsOnAllExceptions();
     }
 
     @Override
-    public TimeSpan getRescheduleIntervalOnLock(final InternalTenantContext tenantContext) {
-        final String result = getStringTenantConfig("getRescheduleIntervalOnLock", tenantContext);
+    public boolean isParkAccountsOnAllExceptions(final InternalTenantContext tenantContext) {
+        final String result = getStringTenantConfig("isParkAccountsOnAllExceptions", tenantContext);
         if (result != null) {
-            return new TimeSpan(result);
+            return Boolean.parseBoolean(result);
         }
-        return getRescheduleIntervalOnLock();
+        return isParkAccountsOnAllExceptions();
     }
 
     @Override

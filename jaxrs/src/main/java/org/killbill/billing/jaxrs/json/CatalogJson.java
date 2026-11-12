@@ -26,9 +26,11 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.joda.time.DateTime;
 import org.killbill.billing.catalog.api.BillingPeriod;
+import org.killbill.billing.catalog.api.BillingMode;
 import org.killbill.billing.catalog.api.CatalogApiException;
 import org.killbill.billing.catalog.api.Currency;
 import org.killbill.billing.catalog.api.CurrencyValueNull;
@@ -47,16 +49,13 @@ import org.killbill.billing.catalog.api.TieredBlock;
 import org.killbill.billing.catalog.api.TimeUnit;
 import org.killbill.billing.catalog.api.Unit;
 import org.killbill.billing.catalog.api.Usage;
-import org.killbill.billing.jaxrs.resources.JaxRsResourceBase;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.google.common.base.Function;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
-import io.swagger.annotations.ApiModel;
 
-@ApiModel(value="Catalog")
+import io.swagger.v3.oas.annotations.media.Schema;
+
+@Schema(name = "Catalog")
 public class CatalogJson {
 
     private final String name;
@@ -88,6 +87,7 @@ public class CatalogJson {
         currencies = Arrays.asList(catalog.getSupportedCurrencies());
         priceLists = new ArrayList<PriceListJson>();
 
+        final Collection<Product> XMLproducts = catalog.getProducts();
         List<UnitJson> units = new ArrayList<UnitJson>();
         for (final Unit unit : catalog.getUnits()) {
             final UnitJson unitJson = new UnitJson(unit.getName(), unit.getPrettyName());
@@ -113,8 +113,19 @@ public class CatalogJson {
             final PlanJson planJson = new PlanJson(plan);
             productJson.getPlans().add(planJson);
         }
+        // Add products that are not part of any plan
+        for (final Product product : XMLproducts) {
+            final String productName = product.getName();
+            ProductJson productJson = productMap.get(product.getName());
+            if (!productMap.containsKey(productName)) {
+                if (productJson == null) {
+                    productJson = new ProductJson(product);
+                    productMap.put(product.getName(), productJson);
+                }
+            }
+        }
 
-        products = ImmutableList.<ProductJson>copyOf(productMap.values());
+        products = List.copyOf(productMap.values());
 
         final PriceListSet priceLists = catalog.getPriceLists();
         for (PriceList childPriceList : priceLists.getAllPriceLists()) {
@@ -215,7 +226,7 @@ public class CatalogJson {
         return result;
     }
 
-    @ApiModel(value="Unit")
+    @Schema(name = "Unit")
     public static class UnitJson {
 
         private final String name;
@@ -265,7 +276,7 @@ public class CatalogJson {
 
     }
 
-    @ApiModel(value="Product")
+    @Schema(name = "Product")
     public static class ProductJson {
 
         private final String type;
@@ -377,21 +388,16 @@ public class CatalogJson {
         }
 
         private List<String> toProductNames(final Collection<Product> in) {
-            return Lists.transform(ImmutableList.<Product>copyOf(in),
-                                   new Function<Product, String>() {
-                                       @Override
-                                       public String apply(final Product input) {
-                                           return input.getName();
-                                       }
-                                   });
+            return in.stream().map(Product::getName).collect(Collectors.toUnmodifiableList());
         }
     }
 
-    @ApiModel(value="Plan")
+    @Schema(name = "Plan")
     public static class PlanJson {
 
         private final String name;
         private final String prettyName;
+        private final BillingMode recurringBillingMode;
         private final BillingPeriod billingPeriod;
         private final List<PhaseJson> phases;
 
@@ -404,6 +410,7 @@ public class CatalogJson {
 
             this.name = plan.getName();
             this.prettyName = plan.getPrettyName();
+            this.recurringBillingMode = plan.getRecurringBillingMode();
             this.billingPeriod = plan.getRecurringBillingPeriod();
             this.phases = phases;
         }
@@ -411,10 +418,12 @@ public class CatalogJson {
         @JsonCreator
         public PlanJson(@JsonProperty("name") final String name,
                         @JsonProperty("prettyName") final String prettyName,
+                        @JsonProperty("recurringBillingMode") final BillingMode recurringBillingMode,
                         @JsonProperty("billingPeriod") final BillingPeriod billingPeriod,
                         @JsonProperty("phases") final List<PhaseJson> phases) {
             this.name = name;
             this.prettyName = prettyName;
+            this.recurringBillingMode = recurringBillingMode;
             this.billingPeriod = billingPeriod;
             this.phases = phases;
         }
@@ -431,6 +440,10 @@ public class CatalogJson {
             return billingPeriod;
         }
 
+        public BillingMode getRecurringBillingMode() {
+            return recurringBillingMode;
+        }
+
         public List<PhaseJson> getPhases() {
             return phases;
         }
@@ -440,6 +453,7 @@ public class CatalogJson {
             final StringBuilder sb = new StringBuilder("PlanJson{");
             sb.append("name='").append(name).append('\'');
             sb.append("prettyName='").append(prettyName).append('\'');
+            sb.append("recurringBillingMode='").append(recurringBillingMode).append('\'');
             sb.append("billingPeriod='").append(billingPeriod).append('\'');
             sb.append(", phases=").append(phases);
             sb.append('}');
@@ -458,6 +472,9 @@ public class CatalogJson {
             final PlanJson planJson = (PlanJson) o;
 
             if (name != null ? !name.equals(planJson.name) : planJson.name != null) {
+                return false;
+            }
+            if (recurringBillingMode != null ? !recurringBillingMode.equals(planJson.recurringBillingMode) : planJson.recurringBillingMode != null) {
                 return false;
             }
             if (billingPeriod != null ? !billingPeriod.equals(planJson.billingPeriod) : planJson.billingPeriod != null) {
@@ -479,7 +496,7 @@ public class CatalogJson {
         }
     }
 
-    @ApiModel(value="TieredBlock")
+    @Schema(name = "TieredBlock")
     public static class TieredBlockJson {
         private final String unit;
         private final String size;
@@ -558,7 +575,7 @@ public class CatalogJson {
         }
     }
 
-    @ApiModel(value="Limit")
+    @Schema(name = "Limit")
     public static class LimitJson {
         private final String unit;
         private final String max;
@@ -626,7 +643,7 @@ public class CatalogJson {
         }
     }
 
-    @ApiModel(value="Tier")
+    @Schema(name = "Tier")
     public static class TierJson {
         private final List<TieredBlockJson> blocks;
         private final List<LimitJson> limits;
@@ -705,14 +722,14 @@ public class CatalogJson {
         }
     }
 
-    @ApiModel(value="Usage")
+    @Schema(name = "Usage")
     public static class UsageJson {
         private final String billingPeriod;
         private final List<TierJson> tiers;
 
         @JsonCreator
         public UsageJson(@JsonProperty("billingPeriod") final String billingPeriod,
-                        @JsonProperty("tiers") final List<TierJson> tiers) {
+                         @JsonProperty("tiers") final List<TierJson> tiers) {
             this.billingPeriod = billingPeriod;
             this.tiers = tiers;
         }
@@ -762,7 +779,7 @@ public class CatalogJson {
         }
     }
 
-    @ApiModel(value="Phase")
+    @Schema(name = "Phase")
     public static class PhaseJson {
 
         private final String type;
@@ -928,8 +945,7 @@ public class CatalogJson {
         }
     }
 
-
-    @ApiModel(value="Price")
+    @Schema(name = "Price")
     public static class PriceJson {
 
         private final Currency currency;
@@ -992,7 +1008,7 @@ public class CatalogJson {
         }
     }
 
-    @ApiModel(value="PriceList")
+    @Schema(name = "PriceList")
     public static class PriceListJson {
 
         private String name;
@@ -1058,7 +1074,7 @@ public class CatalogJson {
 
     }
 
-    @ApiModel(value="Duration")
+    @Schema(name = "Duration")
     public static class DurationJson {
 
         private final TimeUnit unit;
